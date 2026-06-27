@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 import aiosqlite
 
-from embpilot.core.engine import LogLine
+from embpilot.runtime.models import LogLine
 
 logger = logging.getLogger(__name__)
 
