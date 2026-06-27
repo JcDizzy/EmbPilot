@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [project.scripts]
-embpilot = "embpilot.__main__:main"
+embpilot = "embpilot.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -44,3 +44,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
