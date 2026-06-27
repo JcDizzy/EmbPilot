@@ -20,10 +20,34 @@
   maintainability and standard PyPI packaging.
 - Wrote the implementation plan that decomposes the rearchitecture into
   staged, test-first tasks under `docs/superpowers/plans/`.
+- Completed Task 5 in the runtime rearchitecture worktree:
+  - added `src/embpilot/runtime/session.py` as the foundational session layer
+  - added `tests/runtime/test_session.py` covering explicit `device_name`
+    precedence and expect-window command output capture
+  - verified the new tests with Python 3.11 using
+    `py -3.11 -m pytest tests/runtime/test_session.py -v`
+  - fixed two follow-up quality issues in Task 5:
+    - `disconnect_device()` / `shutdown()` now cancel the producer task so
+      disconnect does not hang if the reader never emits EOF
+    - `send_command()` now cleans up the opened expect window if
+      `device.write()` fails
+    - `disconnect_device()` / `shutdown()` now also swallow a stale producer
+      failure that already happened in the background, so explicit cleanup
+      still completes instead of re-raising an old reader exception
+    - `send_command()` now runs single-flight under a session lock so
+      overlapping command windows cannot consume each other's output
+  - added focused regressions for the non-EOF disconnect path and
+    write-failure window cleanup
+  - added a focused regression for a background producer crash before
+    explicit disconnect
+  - added a focused regression for overlapping `send_command()` calls to
+    prove outputs stay isolated per command
 
 ### Current status
 - The repository had no `.git` directory before initialization.
 - The workspace already contained generated artifacts such as `.venv`, `.pytest_cache`, `.codegraph`, `__pycache__`, and `src/embpilot.egg-info`.
+- Task 5 now lives in the isolated worktree
+  `E:\jc\杂项\EmbPilot\.worktrees\feat-runtime-rearchitecture`.
 
 ### Known issues / pitfalls
 - Running `pytest -q` directly in the repository currently fails during test collection with `ModuleNotFoundError: No module named 'embpilot'`.
@@ -31,6 +55,9 @@
 - Likely follow-up options:
   - run tests with an editable install such as `pip install -e .[dev]`
   - or add explicit pytest path configuration if the project wants zero-setup local test runs
+- On this machine, plain `pytest` resolves to Python 3.9 and fails against
+  current runtime code which relies on Python 3.11 features such as
+  `dataclass(slots=True)`. Use `py -3.11 -m pytest ...` for runtime tasks.
 
 ### Next good step
-- Choose an execution mode for the runtime rearchitecture plan and start Task 1.
+- Continue with the next approved runtime rearchitecture task from the worktree baseline.

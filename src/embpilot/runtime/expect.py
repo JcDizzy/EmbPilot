@@ -84,6 +84,13 @@ class ExpectManager:
                 window.future.set_exception(ExpectWindowClosedError(window.lines))
             self._discard_window(window)
 
+    def cancel_window(self, window: CommandWindow) -> None:
+        if window.timeout_handle is not None:
+            window.timeout_handle.cancel()
+        if not window.future.done():
+            window.future.cancel()
+        self._discard_window(window)
+
     def _timeout_window(self, window: CommandWindow | None) -> None:
         if window is None:
             return

@@ -30,3 +30,11 @@
 - repo init prep: added `.gitignore` for local caches/generated files, added `.editorconfig` to pin UTF-8/LF defaults, and added `PROGRESS.md` to track initialization status plus current pytest import-path pitfall.
 - runtime rearchitecture design: added a written spec covering standard PyPI package structure, runtime module boundaries, session dispatcher fan-out, `device://session_info`, and staged migration/testing strategy.
 - runtime rearchitecture implementation plan: added a task-by-task execution plan with TDD steps, verification commands, and commit boundaries for the staged refactor.
+- runtime session layer: added `src/embpilot/runtime/session.py` with `build_device`, `SessionManager`, session lifecycle helpers, and expect-window-driven `send_command` behavior wired through `MainDatabase`, `SessionDatabase`, `ExpectManager`, `RingBuffer`, `DbSink`, `RingBufferSink`, `LogProducer`, and `SessionDispatcher`.
+- runtime session tests: added `tests/runtime/test_session.py` covering explicit `device_name` precedence over transport fallback and returning only the collected command window output until an expect match.
+- runtime session follow-up hardening: fixed shutdown/disconnect to cancel the producer task when a device reader stays open across disconnect, and fixed `send_command` to clean up its expect window if `device.write()` raises before output collection begins.
+- runtime session regressions: extended `tests/runtime/test_session.py` to cover the non-EOF disconnect path and verify there is no lingering expect window after a write failure.
+- runtime session producer-failure cleanup: fixed explicit `disconnect_device` / `shutdown` to consume an already-failed background producer task instead of re-raising the stale reader exception during cleanup.
+- runtime session regression: extended `tests/runtime/test_session.py` to cover a reader crash before explicit disconnect and verify cleanup still completes cleanly.
+- runtime session command isolation: serialized `send_command` execution within a session so overlapping calls no longer share one active expect window stream and corrupt each other's captured output.
+- runtime session regression: extended `tests/runtime/test_session.py` to cover overlapping `send_command` calls and verify outputs remain isolated by command.
