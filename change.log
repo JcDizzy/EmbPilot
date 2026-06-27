@@ -38,3 +38,6 @@
 - runtime session regression: extended `tests/runtime/test_session.py` to cover a reader crash before explicit disconnect and verify cleanup still completes cleanly.
 - runtime session command isolation: serialized `send_command` execution within a session so overlapping calls no longer share one active expect window stream and corrupt each other's captured output.
 - runtime session regression: extended `tests/runtime/test_session.py` to cover overlapping `send_command` calls and verify outputs remain isolated by command.
+- MCP app split: added `src/embpilot/mcp_app.py` to build the MCP server from the runtime session layer and stdio runner instead of keeping protocol registration embedded in `server.py`, while keeping this stage scoped to resource registration only.
+- MCP app resources: replaced the old fake `device://sysinfo` registration with `device://session_info`, kept `device://live_log`, and added focused integration coverage in `tests/integration/test_mcp_app.py` for the resource catalog and resource-only handler registration.
+- compatibility entrypoints: turned `src/embpilot/server.py` into a thin compatibility wrapper and updated `src/embpilot/cli.py` to launch through the new MCP app path, with focused tests covering exact Task 6 resource URIs plus `cli.main(...)` and `server.serve(...)` forwarding to the new runner.

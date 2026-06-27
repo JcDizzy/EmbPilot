@@ -42,6 +42,26 @@
     explicit disconnect
   - added a focused regression for overlapping `send_command()` calls to
     prove outputs stay isolated per command
+- Completed Task 6 in the runtime rearchitecture worktree:
+  - added `src/embpilot/mcp_app.py` to own MCP app assembly and stdio startup
+  - added `tests/integration/test_mcp_app.py` covering resource catalog
+    exposure for `device://session_info`, non-null app/manager creation, and
+    the narrowed resource-only handler registration
+  - tightened the resource-catalog expectation to the exact Task 6 URI set:
+    `device://live_log` and `device://session_info`, explicitly excluding
+    `device://sysinfo`
+  - added compatibility-entrypoint tests proving `cli.main(...)` calls
+    `run_stdio_mcp_server(...)` and `server.serve(...)` forwards to the new
+    runner
+  - replaced `device://sysinfo` with `device://session_info` in the new MCP
+    resource catalog while keeping `device://live_log`
+  - turned `src/embpilot/server.py` into a thin compatibility wrapper over the
+    new MCP app runner
+  - updated `src/embpilot/cli.py` to launch through `run_stdio_mcp_server()`
+  - kept Task 6 scoped to the MCP app split and basic resource registration,
+    without migrating the full tool or prompt catalogs
+  - verified the focused Task 6 test first fails and then passes with
+    `py -3.11 -m pytest tests/integration/test_mcp_app.py -v`
 
 ### Current status
 - The repository had no `.git` directory before initialization.
@@ -60,4 +80,5 @@
   `dataclass(slots=True)`. Use `py -3.11 -m pytest ...` for runtime tasks.
 
 ### Next good step
-- Continue with the next approved runtime rearchitecture task from the worktree baseline.
+- Run the broader runtime rearchitecture verification set, then continue with
+  the next approved task from the worktree baseline.

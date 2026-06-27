@@ -70,7 +70,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     from embpilot.config import EmbPilotConfig
-    from embpilot.server import serve
+    from embpilot.mcp_app import run_stdio_mcp_server
 
     config = EmbPilotConfig.from_args(args)
-    serve(config)
+    run_stdio_mcp_server(config)
