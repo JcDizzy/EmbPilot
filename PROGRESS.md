@@ -18,6 +18,8 @@
 - Prepared the project for Git initialization.
 - Wrote the approved runtime rearchitecture design spec for long-term
   maintainability and standard PyPI packaging.
+- Wrote the implementation plan that decomposes the rearchitecture into
+  staged, test-first tasks under `docs/superpowers/plans/`.
 
 ### Current status
 - The repository had no `.git` directory before initialization.
@@ -31,6 +33,4 @@
   - or add explicit pytest path configuration if the project wants zero-setup local test runs
 
 ### Next good step
-- Review the written runtime rearchitecture spec, then derive an implementation
-  plan from it before touching code.
-
+- Choose an execution mode for the runtime rearchitecture plan and start Task 1.

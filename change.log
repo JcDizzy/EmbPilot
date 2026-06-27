@@ -29,3 +29,4 @@
 [2026-06-27]
 - repo init prep: added `.gitignore` for local caches/generated files, added `.editorconfig` to pin UTF-8/LF defaults, and added `PROGRESS.md` to track initialization status plus current pytest import-path pitfall.
 - runtime rearchitecture design: added a written spec covering standard PyPI package structure, runtime module boundaries, session dispatcher fan-out, `device://session_info`, and staged migration/testing strategy.
+- runtime rearchitecture implementation plan: added a task-by-task execution plan with TDD steps, verification commands, and commit boundaries for the staged refactor.
