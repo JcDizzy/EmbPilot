@@ -37,26 +37,53 @@ class DbSink:
         session_db: SessionDatabase,
         batch_size: int = 200,
         source: str = "serial",
+        flush_interval_s: float = 1.0,
     ) -> None:
         self._session_db = session_db
         self._batch_size = batch_size
         self._source = source
+        self._flush_interval_s = flush_interval_s
         self._batch: list[LogLine] = []
+        self._flush_lock = asyncio.Lock()
+        self._periodic_task: asyncio.Task[None] | None = None
 
     async def write(self, line: LogLine) -> None:
         self._batch.append(line)
         if len(self._batch) >= self._batch_size:
             await self._flush()
+        else:
+            self._ensure_periodic_flush()
 
-    async def close(self) -> None:
-        await self._flush()
+    def _ensure_periodic_flush(self) -> None:
+        if self._periodic_task is None or self._periodic_task.done():
+            self._periodic_task = asyncio.create_task(self._periodic_flush())
+
+    async def _periodic_flush(self) -> None:
+        try:
+            await asyncio.sleep(self._flush_interval_s)
+            await self._flush()
+        except asyncio.CancelledError:
+            return
 
     async def _flush(self) -> None:
-        if not self._batch:
-            return
-        batch = self._batch
-        self._batch = []
-        await self._session_db.bulk_insert_logs(batch, source=self._source)
+        async with self._flush_lock:
+            if not self._batch:
+                return
+            batch = self._batch
+            self._batch = []
+            await self._session_db.bulk_insert_logs(batch, source=self._source)
+
+    async def flush(self) -> None:
+        """Flush any pending batch immediately (used before queries)."""
+        if self._periodic_task is not None and not self._periodic_task.done():
+            self._periodic_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._periodic_task
+            self._periodic_task = None
+        await self._flush()
+
+    async def close(self) -> None:
+        await self.flush()
 
 
 class SessionDispatcher:

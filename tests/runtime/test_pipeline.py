@@ -241,3 +241,42 @@ def test_session_dispatcher_applies_backpressure_with_bounded_sink_queue():
         assert [line.text for line in fast_sink.lines] == ["first", "second", "third"]
 
     asyncio.run(scenario())
+
+
+def test_db_sink_flushes_on_interval_without_filling_batch(tmp_path: Path):
+    async def scenario() -> None:
+        session_db = SessionDatabase(tmp_path / "session.db")
+        await session_db.open()
+        sink = DbSink(session_db, batch_size=200, flush_interval_s=0.1)
+
+        # write far less than batch_size; without periodic flush this would
+        # only hit the db on close
+        await sink.write(LogLine(datetime(2026, 6, 27, 12, 0, tzinfo=timezone.utc), "marker-1"))
+        await sink.write(LogLine(datetime(2026, 6, 27, 12, 0, 1, tzinfo=timezone.utc), "marker-2"))
+
+        assert await session_db.get_log_count() == 0  # not flushed yet
+
+        await asyncio.sleep(0.25)  # > flush_interval_s
+
+        assert await session_db.get_log_count() == 2  # periodic flush wrote it
+
+        await sink.close()
+        await session_db.close()
+
+    asyncio.run(scenario())
+
+
+def test_db_sink_close_cancels_pending_periodic_flush(tmp_path: Path):
+    async def scenario() -> None:
+        session_db = SessionDatabase(tmp_path / "session.db")
+        await session_db.open()
+        sink = DbSink(session_db, batch_size=200, flush_interval_s=10.0)
+
+        await sink.write(LogLine(datetime(2026, 6, 27, 12, 0, tzinfo=timezone.utc), "only-line"))
+        # periodic task is pending (10s); close must cancel it and still flush
+        await sink.close()
+
+        assert await session_db.get_log_count() == 1
+        await session_db.close()
+
+    asyncio.run(scenario())
