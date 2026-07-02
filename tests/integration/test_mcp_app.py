@@ -203,3 +203,70 @@ def test_render_unknown_prompt_raises() -> None:
 
     with pytest.raises(ValueError):
         render_prompt("nonexistent", {})
+
+
+def test_build_tool_catalog_lists_session_query_tools() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    names = {tool.name for tool in build_tool_catalog()}
+
+    assert {
+        "list_sessions",
+        "delete_session",
+        "search_history_logs",
+        "export_session",
+    } <= names
+
+
+def test_dispatch_tool_list_sessions_returns_json(tmp_path: Path) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    async def scenario() -> None:
+        manager = SessionManager(build_config(tmp_path))
+        await manager.start()
+        try:
+            result = await dispatch_tool(manager, "list_sessions", {})
+        finally:
+            await manager.shutdown()
+
+        assert len(result) == 1
+        assert isinstance(result[0], types.TextContent)
+        assert result[0].text.strip().startswith("[")
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_tool_delete_session_without_id_returns_error(tmp_path: Path) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    async def scenario() -> None:
+        manager = SessionManager(build_config(tmp_path))
+        await manager.start()
+        try:
+            result = await dispatch_tool(manager, "delete_session", {})
+        finally:
+            await manager.shutdown()
+
+        assert len(result) == 1
+        assert "error" in result[0].text.lower()
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_tool_export_unknown_session_returns_error(tmp_path: Path) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    async def scenario() -> None:
+        manager = SessionManager(build_config(tmp_path))
+        await manager.start()
+        try:
+            result = await dispatch_tool(
+                manager, "export_session", {"session_id": "missing-1"}
+            )
+        finally:
+            await manager.shutdown()
+
+        assert len(result) == 1
+        assert "error" in result[0].text.lower()
+
+    asyncio.run(scenario())

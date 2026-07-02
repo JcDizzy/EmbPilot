@@ -123,6 +123,70 @@ def build_tool_catalog() -> list[Tool]:
                 "properties": {},
             },
         ),
+        Tool(
+            name="list_sessions",
+            description="List all recorded device sessions, newest first.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        Tool(
+            name="delete_session",
+            description=(
+                "Delete a recorded session's database file and remove its index "
+                "entry. The active session cannot be deleted — disconnect first."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                },
+                "required": ["session_id"],
+            },
+        ),
+        Tool(
+            name="search_history_logs",
+            description=(
+                "Search a session's device logs by keyword, optionally within a "
+                "recent time window."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "keyword": {"type": "string"},
+                    "time_window_seconds": {
+                        "type": "integer",
+                        "description": "Optional: restrict to the last N seconds.",
+                    },
+                    "limit": {"type": "integer", "default": 50},
+                    "offset": {"type": "integer", "default": 0},
+                },
+                "required": ["session_id", "keyword"],
+            },
+        ),
+        Tool(
+            name="export_session",
+            description=(
+                "Export a session's device logs as text or JSON. Output is capped "
+                "by limit (default 2000)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "format": {
+                        "type": "string",
+                        "enum": ["text", "json"],
+                        "default": "text",
+                    },
+                    "limit": {"type": "integer", "default": 2000},
+                    "offset": {"type": "integer", "default": 0},
+                },
+                "required": ["session_id"],
+            },
+        ),
     ]
 
 
@@ -151,6 +215,35 @@ async def dispatch_tool(
         if name == "disconnect_device":
             await manager.disconnect_device()
             return [TextContent(type="text", text="Disconnected.")]
+        if name == "list_sessions":
+            sessions = await manager.list_sessions()
+            payload = json.dumps(sessions, ensure_ascii=False, indent=2)
+            return [TextContent(type="text", text=payload)]
+        if name == "delete_session":
+            await manager.delete_session(session_id=arguments["session_id"])
+            return [
+                TextContent(
+                    type="text", text=f"Deleted session {arguments['session_id']!r}."
+                )
+            ]
+        if name == "search_history_logs":
+            logs = await manager.search_session_logs(
+                session_id=arguments["session_id"],
+                keyword=arguments["keyword"],
+                time_window_seconds=arguments.get("time_window_seconds"),
+                limit=arguments.get("limit", 50),
+                offset=arguments.get("offset", 0),
+            )
+            payload = json.dumps(logs, ensure_ascii=False, indent=2)
+            return [TextContent(type="text", text=payload)]
+        if name == "export_session":
+            text = await manager.export_session(
+                session_id=arguments["session_id"],
+                fmt=arguments.get("format", "text"),
+                limit=arguments.get("limit", 2000),
+                offset=arguments.get("offset", 0),
+            )
+            return [TextContent(type="text", text=text)]
         return [
             TextContent(type="text", text=f"Error: unknown tool {name!r}")
         ]
