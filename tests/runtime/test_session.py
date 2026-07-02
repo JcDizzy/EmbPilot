@@ -503,3 +503,36 @@ def test_search_session_logs_raises_for_unknown_session(tmp_path):
             await manager.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_open_session_db_reuses_active_connection(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+            active_id = manager.get_session_info().session_id
+            conn_before = manager._session_db._conn
+
+            # search/export on the ACTIVE session must short-circuit and reuse
+            # the live connection rather than opening/closing a historical one
+            await manager.search_session_logs(active_id, "anything")
+            await manager.export_session(active_id, fmt="json")
+
+            assert manager._session_db is not None
+            assert manager._session_db._conn is conn_before
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
