@@ -170,6 +170,8 @@ class SessionManager:
         async with self._command_lock:
             if self._device is None:
                 raise RuntimeError("No active device connection")
+            # reset_target sends a fixed, complete reboot instruction including the
+            # line terminator; send_command instead leaves termination to the caller.
             await self._device.write(b"reboot\n")
             if self._session_info is not None:
                 await self._main_db.insert_operation(

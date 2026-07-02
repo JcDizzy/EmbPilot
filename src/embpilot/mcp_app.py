@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import AnyUrl
 
@@ -127,7 +127,7 @@ def build_tool_catalog() -> list[Tool]:
 
 
 async def dispatch_tool(
-    manager: SessionManager, name: str, arguments: dict
+    manager: SessionManager, name: str, arguments: dict[str, Any]
 ) -> list[TextContent]:
     try:
         if name == "connect_device":
@@ -189,7 +189,7 @@ def build_prompt_catalog() -> list[Prompt]:
     ]
 
 
-def render_prompt(name: str, arguments: dict) -> str:
+def render_prompt(name: str, arguments: dict[str, Any]) -> str:
     if name == "analyze_crash_log":
         context = (arguments.get("context") or "").strip()
         body = (
@@ -264,7 +264,7 @@ def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
         return build_tool_catalog()
 
     @app.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await dispatch_tool(manager, name, arguments)
 
     @app.list_prompts()
@@ -272,7 +272,7 @@ def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
         return build_prompt_catalog()
 
     @app.get_prompt()
-    async def get_prompt(name: str, arguments: dict) -> GetPromptResult:
+    async def get_prompt(name: str, arguments: dict[str, Any]) -> GetPromptResult:
         return _prompt_result(name, render_prompt(name, arguments))
 
     return app, manager
