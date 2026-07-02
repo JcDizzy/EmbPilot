@@ -21,7 +21,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 ### 2. Resources (AI 可读取的数据源)
 * **`device://live_log`**：实时日志流，支持 AI 客户端通过 `resources/subscribe` 机制动态监听物理设备的输出。
 * **`device://session_info`**：会话元数据快照。返回当前连接的 `session_id`、接口类型、设备名、连接摘要、启动时间、状态、最近日志时间、日志计数等运行时真实信息。这里不再假设 EmbPilot 能对所有嵌入式目标统一发起一组“通用 sysinfo 探测命令”。
-* **`device://analytics`**：基于本地数据库的异常聚合统计。返回近期错误日志频次表，避免 AI 检索海量原始文本。（尚未作为 MCP 资源暴露；core 层已有 `SessionDatabase.get_analytics` 原语支撑。）
+* **`device://analytics`**：基于本地数据库的异常聚合统计。返回当前活动会话中错误类日志（error/fail/panic/fault 等）的频次聚合表，避免 AI 检索海量原始文本。无活动会话时返回空数组。
 
 ### 3. Prompts (场景引导提示词模版)
 * **`analyze_crash_log`**：引导 AI 自动捕获 `HardFault`、`Panic` 或 `Segmentation fault` 的上下文并进行根因分析。

@@ -13,13 +13,11 @@
 - Async producer-consumer pipeline (LogProducer, ExpectConsumer, DbConsumer → SessionDatabase)
 - Auto-flush DbConsumer with periodic timer (50ms interval, batch_size=200)
 - Hardware drivers: SerialDevice (pyserial-asyncio), TelnetDevice (telnetlib3), SshDevice (asyncssh)
-- MCP Server integration with 8 tools, 2 resources, 2 prompts:
+- MCP Server integration with 8 tools, 3 resources, 2 prompts:
   - Tools: connect_device, send_command (with expect_regex), reset_target (reboot only),
     disconnect_device, list_sessions, delete_session, search_history_logs, export_session
-  - Resources: device://live_log (subscribable), device://session_info
+  - Resources: device://live_log (subscribable), device://session_info, device://analytics
   - Prompts: analyze_crash_log, hardware_sanity_check
-- Planned MCP surface not yet exposed: a device://analytics resource (the
-  SessionDatabase.get_analytics primitive already backs it).
 - Session lifecycle management (auto-disconnect on reconnect, auto-cleanup on startup)
 - Retention policy: configurable max_days (30) + max_gb (5) with auto-cleanup
 - Local RAG engine: fastembed + LanceDB for semantic document search
@@ -58,3 +56,5 @@
 - MCP session-query tools: extended `build_tool_catalog()` and `dispatch_tool()` with `list_sessions`, `delete_session`, `search_history_logs`, and `export_session`; JSON results are pretty-printed and errors surface as TextContent.
 - session-query tests: added coverage in `tests/test_database.py`, `tests/runtime/test_session.py` (including the active-session shortcut), and `tests/integration/test_mcp_app.py`.
 - docs alignment: updated `docs/mcp_embedded_debug_spec.md` with the four new tools and an "not yet exposed" note on device://analytics, and refreshed `change.log`/`PROGRESS.md` for the stage.
+[2026-07-02]
+- device://analytics resource: added `SessionManager.get_analytics()` (delegates to the active session's `SessionDatabase.get_analytics`, empty when no active session) and exposed it through `build_resource_catalog()` + the `read_resource` handler in `mcp_app.py`; updated the resource catalog test. Completes the MCP surface (8 tools / 3 resources / 2 prompts).

@@ -1,5 +1,11 @@
 # Progress
 
+## 2026-07-02 — device://analytics resource
+
+### Done
+- Exposed `device://analytics` to complete the MCP surface (now 8 tools / 3 resources / 2 prompts): added `SessionManager.get_analytics()` (active session only, empty otherwise) and wired it through `build_resource_catalog()` + `read_resource` in `mcp_app.py`.
+- Verified with the project's pytest command (72 passed, excluding `tests/test_rag.py`).
+
 ## 2026-07-02 — session-query tools
 
 ### Done
@@ -26,11 +32,11 @@
 - `search_history_logs` accepts a `time_window_seconds` filter, but it is only
   meaningful for the active session; historical sessions will usually return
   empty for a "last N seconds" window. Documented in the spec.
-- `device://analytics` remains the only MCP surface item still deferred; the
-  `SessionDatabase.get_analytics` primitive already backs it.
 
 ### Next good step
-- Expose `device://analytics` as a resource, or pursue packaging/release work.
+- The MCP surface is now complete (8 tools / 3 resources / 2 prompts). Next:
+  pursue packaging/release (0.1.0), or push the `feat/runtime-rearchitecture`
+  branch and open a PR.
 
 ## 2026-07-02
 
