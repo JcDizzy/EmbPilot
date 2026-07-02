@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 
 from embpilot import __version__
@@ -62,12 +63,22 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Logging level (default: INFO)",
     )
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser(
+        "doctor",
+        help="Run environment diagnostics and exit",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "doctor":
+        from embpilot.doctor import run_doctor
+
+        sys.exit(run_doctor())
 
     from embpilot.config import EmbPilotConfig
     from embpilot.mcp_app import run_stdio_mcp_server

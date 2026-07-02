@@ -176,3 +176,20 @@ def test_installed_package_includes_sql_schema_files(tmp_path: Path) -> None:
         "Missing packaged SQL schema files:\n"
         f"{locate_result.stderr or locate_result.stdout}"
     )
+
+
+def test_main_doctor_reports_version_and_core_deps(capsys: pytest.CaptureFixture[str]) -> None:
+    from embpilot import __version__
+    from embpilot.cli import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["doctor"])
+    # doctor exits 0 (all required checks pass) or 1 (some failed); both mean it ran
+    assert exc_info.value.code in (0, 1)
+
+    out = capsys.readouterr().out
+    assert f"embpilot {__version__}" in out
+    assert "python" in out
+    assert "core dependencies" in out
+    assert "mcp" in out
+    assert "optional RAG dependencies" in out
