@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-07-02 — DbSink flush latency fix
+
+### Done
+- Fixed active-session search/export staleness found during real-device (COM32) testing:
+  - `DbSink` now flushes on a configurable interval (default 1.0s), so low-rate
+    sessions persist without waiting for `batch_size=200` (previously a ~2 line/sec
+    device didn't write to SQLite for ~100s).
+  - `SessionManager` holds the `DbSink` reference and flushes it before
+    `search_session_logs`/`export_session` on the active session, so queries return
+    the latest device output immediately.
+  - Verified with `tests/runtime/test_pipeline.py` (periodic flush + close-cancels)
+    and `tests/runtime/test_session.py` (active-session flush before search).
+
 ## 2026-07-02 — device://analytics resource
 
 ### Done

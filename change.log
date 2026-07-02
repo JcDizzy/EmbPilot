@@ -58,3 +58,6 @@
 - docs alignment: updated `docs/mcp_embedded_debug_spec.md` with the four new tools and an "not yet exposed" note on device://analytics, and refreshed `change.log`/`PROGRESS.md` for the stage.
 [2026-07-02]
 - device://analytics resource: added `SessionManager.get_analytics()` (delegates to the active session's `SessionDatabase.get_analytics`, empty when no active session) and exposed it through `build_resource_catalog()` + the `read_resource` handler in `mcp_app.py`; updated the resource catalog test. Completes the MCP surface (8 tools / 3 resources / 2 prompts).
+[2026-07-02]
+- DbSink periodic flush: DbSink now flushes its batch on a configurable interval (default 1.0s), not only when batch_size fills or on close. Low-rate devices (e.g. a sensor emitting a few lines/sec) now persist to SQLite within ~1s instead of waiting for 200 rows.
+- active-session query flush: SessionManager now holds the DbSink reference and flushes it before search_session_logs/export_session on the active session, so queries return the most recent device output immediately (no waiting for the periodic flush). Fixes the active-session search/export staleness found during real-device testing.
