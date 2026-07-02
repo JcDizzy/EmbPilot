@@ -61,3 +61,6 @@
 [2026-07-02]
 - DbSink periodic flush: DbSink now flushes its batch on a configurable interval (default 1.0s), not only when batch_size fills or on close. Low-rate devices (e.g. a sensor emitting a few lines/sec) now persist to SQLite within ~1s instead of waiting for 200 rows.
 - active-session query flush: SessionManager now holds the DbSink reference and flushes it before search_session_logs/export_session on the active session, so queries return the most recent device output immediately (no waiting for the periodic flush). Fixes the active-session search/export staleness found during real-device testing.
+[2026-07-02]
+- optional RAG dependencies: moved fastembed and lancedb out of required dependencies into the `rag` extra (`pip install embpilot[rag]`). The core MCP server (Serial/Telnet/SSH, all 8 tools / 3 resources / 2 prompts) no longer pulls the heavy RAG stack — a clean `uvx embpilot` installs ~41 packages instead of 75.
+- doctor diagnostics: added `embpilot doctor` (src/embpilot/doctor.py) and a `doctor` CLI subcommand reporting version/Python/platform, core and optional-RAG dependency status, drivers, sqlite, writable data dir, and detected serial ports; exits 0 if all required checks pass else 1.

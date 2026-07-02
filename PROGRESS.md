@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-07-02 — packaging: optional RAG + doctor
+
+### Done
+- Moved `fastembed`/`lancedb` out of required `dependencies` into an optional `[rag]` extra (pyproject.toml). Core MCP server installs clean and light (~41 pkgs via uvx vs 75 before); RAG is opt-in via `pip install embpilot[rag]`. Verified the core startup path does not import `core.rag`.
+- Added `embpilot doctor` (`src/embpilot/doctor.py` + cli `doctor` subcommand): reports version/Python/platform, core deps, optional RAG dep status, drivers, sqlite, writable data dir, detected serial ports; exits 0/1.
+- Verified end-to-end: `uvx --from <worktree> embpilot doctor` runs in a clean Python 3.13 isolated env, installs only core deps, prints a full passing report.
+- Pushed `feat/runtime-rearchitecture` + `main` to `git@github.com:JcDizzy/EmbPilot.git`.
+
 ## 2026-07-02 — DbSink flush latency fix
 
 ### Done

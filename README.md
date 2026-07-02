@@ -21,11 +21,13 @@ devices over Serial, Telnet, or SSH.
 ## Quick Start
 
 ```bash
-pip install embpilot
+pip install embpilot        # core: Serial/Telnet/SSH MCP server
+pip install embpilot[rag]   # + optional local RAG (fastembed + LanceDB)
 embpilot
 ```
 
-See `embpilot --help` for available options.
+See `embpilot --help` for available options, or run `embpilot doctor` for
+environment diagnostics (Python, core/RAG deps, drivers, storage, serial ports).
 
 Current resource direction:
 
