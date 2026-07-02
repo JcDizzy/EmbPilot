@@ -62,6 +62,20 @@
     without migrating the full tool or prompt catalogs
   - verified the focused Task 6 test first fails and then passes with
     `py -3.11 -m pytest tests/integration/test_mcp_app.py -v`
+- Completed Task 7 in the runtime rearchitecture worktree:
+  - added packaging verification in `tests/integration/test_cli.py` that
+    installs the project into a clean Python 3.11 virtual environment and
+    checks the installed `embpilot/core/` package data for
+    `schema_main.sql` and `schema_session.sql`
+  - updated `pyproject.toml` to explicitly package `core/*.sql`
+  - updated `README.md` to reflect the new `cli.py` / `mcp_app.py` /
+    `runtime/` architecture and the `device://live_log` +
+    `device://session_info` resource direction
+  - updated `docs/mcp_embedded_debug_spec.md` to replace the fake generic
+    `device://sysinfo` concept with honest session metadata and to describe
+    the dispatcher-based runtime split
+  - queued broader verification for the Task 6/7 boundary after the focused
+    packaging regression flips green
 
 ### Current status
 - The repository had no `.git` directory before initialization.
@@ -80,5 +94,6 @@
   `dataclass(slots=True)`. Use `py -3.11 -m pytest ...` for runtime tasks.
 
 ### Next good step
-- Run the broader runtime rearchitecture verification set, then continue with
-  the next approved task from the worktree baseline.
+- Continue broader runtime verification from this worktree baseline, especially
+  the Task 6/7 integration path covering installed packaging and updated
+  runtime-facing documentation.

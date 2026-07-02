@@ -110,3 +110,69 @@ def test_installed_console_script_prints_version(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == f"embpilot {__version__}"
+
+
+def test_installed_package_includes_sql_schema_files(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    venv_dir = tmp_path / "venv"
+    if sys.version_info >= (3, 11):
+        interpreter_cmd = [sys.executable]
+    elif os.name == "nt" and shutil.which("py"):
+        interpreter_cmd = ["py", "-3.11"]
+    else:
+        pytest.skip("A Python 3.11+ interpreter is required to install embpilot")
+
+    create_venv = subprocess.run(
+        [*interpreter_cmd, "-m", "venv", str(venv_dir)],
+        capture_output=True,
+        check=False,
+        cwd=repo_root,
+        text=True,
+    )
+    assert create_venv.returncode == 0, create_venv.stderr
+
+    scripts_dir = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+    venv_python = scripts_dir / ("python.exe" if os.name == "nt" else "python")
+
+    install_result = subprocess.run(
+        [
+            str(venv_python),
+            "-m",
+            "pip",
+            "install",
+            "--no-deps",
+            "--disable-pip-version-check",
+            "--use-pep517",
+            str(repo_root),
+        ],
+        capture_output=True,
+        check=False,
+        cwd=repo_root,
+        text=True,
+    )
+    assert install_result.returncode == 0, install_result.stderr
+
+    locate_result = subprocess.run(
+        [
+            str(venv_python),
+            "-c",
+            (
+                "from importlib.util import find_spec; "
+                "from pathlib import Path; "
+                "import sys; "
+                "package_dir = Path(find_spec('embpilot').submodule_search_locations[0]); "
+                "missing = [name for name in ('schema_main.sql', 'schema_session.sql') "
+                "if not (package_dir / 'core' / name).is_file()]; "
+                "sys.exit('\\n'.join(missing) if missing else 0)"
+            ),
+        ],
+        capture_output=True,
+        check=False,
+        cwd=repo_root,
+        text=True,
+    )
+
+    assert locate_result.returncode == 0, (
+        "Missing packaged SQL schema files:\n"
+        f"{locate_result.stderr or locate_result.stdout}"
+    )

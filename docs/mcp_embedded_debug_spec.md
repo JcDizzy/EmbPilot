@@ -11,12 +11,12 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 ### 1. Tools (AI 可调用的主动操作)
 * **`connect_device(interface_type, config)`**：建立硬件连接。支持 `serial`（参数：端口号、波特率）及 `telnet/ssh`（参数：IP、端口、用户名/密码）。
 * **`disconnect_device()`**：主动断开连接，释放系统串口或网络句柄。
-* **`send_command(command, expect_regex, timeout_ms)`**：向设备发送指令（如 `help`, `ifconfig`）。支持传入正则表达式 `expect_regex`，在本地匹配成功后立即截断返回，以优化响应时间。
+* **`send_command(command, expect_regex, timeout_ms)`**：向设备发送指令（如 `help`, `ifconfig`）。支持传入正则表达式 `expect_regex`；返回值应是该条命令窗口内采集到的输出，在本地匹配成功后立即截断返回，若未匹配则在超时点返回已收集窗口内容，以优化响应时间并避免把无关刷屏日志混进结果。
 * **`reset_target(method)`**：复位目标板。支持通过串口 DTR/RTS 引脚电平控制或发送 `reboot` 文本命令。
 
 ### 2. Resources (AI 可读取的数据源)
 * **`device://live_log`**：实时日志流，支持 AI 客户端通过 `resources/subscribe` 机制动态监听物理设备的输出。
-* **`device://sysinfo`**：快照资源。AI 读取时，服务器会自动向设备发送系统查询命令组（如内存、任务列表、固件版本），组装成结构化 JSON/Markdown 返回。
+* **`device://session_info`**：会话元数据快照。返回当前连接的 `session_id`、接口类型、设备名、连接摘要、启动时间、状态、最近日志时间、日志计数等运行时真实信息。这里不再假设 EmbPilot 能对所有嵌入式目标统一发起一组“通用 sysinfo 探测命令”。
 * **`device://analytics`**：基于本地数据库的异常聚合统计。返回近期错误日志频次表，避免 AI 检索海量原始文本。
 
 ### 3. Prompts (场景引导提示词模版)
@@ -27,24 +27,27 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 
 ## 二、 系统架构与数据流 (Architecture & Data Flow)
 
-为应对嵌入式调试中常见的高频“日志刷屏”压力，架构采用**读写解耦的生产者-消费者模型**，确保 Python 进程在高吞吐量下不掉帧、不卡死。
+为应对嵌入式调试中常见的高频“日志刷屏”压力，架构采用**MCP 装配层与 runtime 执行层分离**、以及 **dispatcher 扇出** 的日志管线模型，确保 Python 进程在高吞吐量下不掉帧、不卡死，同时把协议注册与运行时状态管理解耦。
 
 ### 1. 数据流向图
 ```
 [物理硬件/网络] (Serial / Telnet 持续输出)
        │
        ▼ (Async Read Loop)
-[ 宿主机内存队列 (asyncio.Queue) ] (打上高精度时间戳)
+[ FrameAssembler + SessionDispatcher ] (打上高精度时间戳后显式扇出)
        │
-       ├───► [ 消费者 1: Local Expect Engine ] ──► (正则匹配成功) ──► 返回 Tool 结果给 AI
-       │
-       └───► [ 消费者 2: SQLite Bulk Ingest ] ──► (每 50ms 批量刷盘) ──► 写入本地 .db 文件
+       ├───► [ RingBufferSink ] ──► `device://live_log`
+       ├───► [ ExpectManager ] ──► `send_command(..., expect_regex=...)`
+       ├───► [ SessionInfoSink ] ──► `device://session_info`
+       └───► [ DbSink ] ──► (每 50ms / 批量刷盘) ──► 写入本地 session .db 文件
 ```
 
 ### 2. 关键设计点
-* **异步双向缓冲区**：底层基于 `asyncio` 和 `pyserial-asyncio`（或 `telnetlib3`），读取任务仅负责接收原始字节、按行切分、追加宿主机时间戳并推入内存队列。
+* **协议层 / 运行时分层**：`mcp_app.py` 负责 MCP Tools / Resources / Prompts 注册与 stdio server 启动；具体连接生命周期、日志处理、expect 行为和资源组装由 `runtime/` 模块承接。
+* **显式 dispatcher 扇出**：底层基于 `asyncio` 和 `pyserial-asyncio`（或 `telnetlib3`），读取任务仅负责接收原始字节、做 frame assembly、追加宿主机时间戳并分发到多个 sink；不再依赖“一个队列被多个消费者同时读取”的隐式行为描述。
 * **宿主机绝对时间戳同步**：所有进入队列的日志行统一附加 `[YYYY-MM-DD HH:MM:SS.SSS]` 前缀，用以对齐 AI 动作与硬件异动的因果关系。
 * **内存容量保护**：内存中的即时查看历史采用固定长度环形缓冲区（`collections.deque(maxlen=2000)`），旧数据自动溢出，海量历史完全交由本地数据库承载。
+* **诚实资源语义**：资源只暴露 runtime 当前能稳定提供的数据。`device://session_info` 描述当前会话事实，而不是伪造一个跨设备通用的 `sysinfo` 采集承诺。
 
 ---
 
@@ -80,7 +83,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 为严格控制大模型的上下文窗口成本，防止刷屏日志稀释关键信息，引入**本地混合 RAG（检索增强生成）**机制。
 
 ### 1. 过滤与拦截策略
-* **本地 Expect 拦截**：AI 通过 `send_command` 查参数时，匹配到指定正则后立即停止日志收集，仅返回捕获组内容。
+* **本地 Expect 拦截**：AI 通过 `send_command` 查参数时，runtime 为该条命令打开独立窗口；匹配到指定正则后立即停止该窗口收集，仅返回命令窗口内捕获的输出。
 * **结构化切片与搜索**：提供 `search_history_logs(keyword, time_window)` 工具。服务器在本地执行 SQL 模糊查询或 BM25 算法，仅将匹配到的核心上下文（如报错前后的 50 行）打包提交给 AI。
 
 ### 2. 本地知识库并联 (Vector DB)
