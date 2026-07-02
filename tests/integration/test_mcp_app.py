@@ -27,7 +27,11 @@ def test_build_resource_catalog_exposes_session_info_resource() -> None:
 
     resource_uris = {str(resource.uri) for resource in resources}
 
-    assert resource_uris == {"device://live_log", "device://session_info"}
+    assert resource_uris == {
+        "device://live_log",
+        "device://session_info",
+        "device://analytics",
+    }
     assert "device://sysinfo" not in resource_uris
 
 

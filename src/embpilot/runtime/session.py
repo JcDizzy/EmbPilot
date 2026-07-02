@@ -237,6 +237,11 @@ class SessionManager:
     def active_ring(self) -> RingBuffer | None:
         return self._ring
 
+    async def get_analytics(self, limit: int = 20) -> list[dict[str, Any]]:
+        if self._session_db is None:
+            return []
+        return await self._session_db.get_analytics(limit)
+
     @asynccontextmanager
     async def _open_session_db(self, session_id: str) -> AsyncIterator[SessionDatabase]:
         if (

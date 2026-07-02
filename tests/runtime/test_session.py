@@ -536,3 +536,62 @@ def test_open_session_db_reuses_active_connection(tmp_path, monkeypatch):
             await manager.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_get_analytics_returns_empty_without_active_session(tmp_path):
+    async def scenario() -> None:
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            assert await manager.get_analytics() == []
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_get_analytics_aggregates_active_session_errors(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    from embpilot.core.engine import LogLine
+
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+            await manager._session_db.bulk_insert_logs(
+                [
+                    LogLine(datetime.now(timezone.utc), "ERROR: boom"),
+                    LogLine(datetime.now(timezone.utc), "ERROR: boom"),
+                    LogLine(datetime.now(timezone.utc), "all good here"),
+                ],
+                source="serial",
+            )
+
+            analytics = await manager.get_analytics()
+
+            boom = next(a for a in analytics if "boom" in a["text"])
+            assert boom["cnt"] >= 2
+            assert all("all good" not in a["text"] for a in analytics)
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())

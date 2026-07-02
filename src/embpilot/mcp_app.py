@@ -50,6 +50,12 @@ def build_resource_catalog() -> list[Resource]:
             description="Current session metadata for the active device connection",
             mimeType="application/json",
         ),
+        Resource(
+            uri=AnyUrl("device://analytics"),
+            name="Device Analytics",
+            description="Aggregated error-like log patterns from the active session",
+            mimeType="application/json",
+        ),
     ]
 
 
@@ -346,6 +352,9 @@ def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
                 ensure_ascii=False,
                 indent=2,
             )
+        if uri_text == "device://analytics":
+            analytics = await manager.get_analytics()
+            return json.dumps(analytics, ensure_ascii=False, indent=2)
         return f"Unknown resource: {uri_text}"
 
     @app.subscribe_resource()
