@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+import json
+from contextlib import asynccontextmanager, suppress
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, AsyncIterator, Callable
 
 from embpilot.config import EmbPilotConfig
 from embpilot.core.database import MainDatabase, SessionDatabase
@@ -235,6 +236,65 @@ class SessionManager:
 
     def active_ring(self) -> RingBuffer | None:
         return self._ring
+
+    @asynccontextmanager
+    async def _open_session_db(self, session_id: str) -> AsyncIterator[SessionDatabase]:
+        if (
+            self._session_info is not None
+            and self._session_info.session_id == session_id
+            and self._session_db is not None
+        ):
+            yield self._session_db
+            return
+        db_path = await self._main_db.get_session_db_path(session_id)
+        if db_path is None:
+            raise KeyError(f"Session not found: {session_id}")
+        db = SessionDatabase(Path(db_path))
+        await db.open()
+        try:
+            yield db
+        finally:
+            await db.close()
+
+    async def list_sessions(self) -> list[dict[str, Any]]:
+        return await self._main_db.list_sessions()
+
+    async def delete_session(self, session_id: str) -> None:
+        if self._session_info is not None and self._session_info.session_id == session_id:
+            raise RuntimeError(
+                "Cannot delete the active session; disconnect_device first"
+            )
+        await self._main_db.delete_session(session_id)
+
+    async def search_session_logs(
+        self,
+        session_id: str,
+        keyword: str,
+        time_window_seconds: int | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        async with self._open_session_db(session_id) as db:
+            return await db.search_logs(keyword, time_window_seconds, limit, offset)
+
+    async def export_session(
+        self,
+        session_id: str,
+        fmt: str = "text",
+        limit: int = 2000,
+        offset: int = 0,
+    ) -> str:
+        async with self._open_session_db(session_id) as db:
+            rows = await db.fetch_logs(limit=limit, offset=offset)
+        if fmt == "json":
+            return json.dumps(rows, ensure_ascii=False, indent=2)
+        if fmt == "text":
+            return "\n".join(
+                f"[{r['timestamp']}] {r['source']}> {r['text']}" for r in rows
+            )
+        raise ValueError(
+            f"Unsupported export format: {fmt!r} (use 'text' or 'json')"
+        )
 
     def _resolve_session_path(self, session_id: str, device_name: str) -> Path:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

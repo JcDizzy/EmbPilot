@@ -375,3 +375,131 @@ def test_reset_target_requires_active_connection(tmp_path):
             await manager.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_list_sessions_returns_recorded_sessions(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            sessions = await manager.list_sessions()
+
+            assert len(sessions) == 1
+            assert sessions[0]["interface"] == "serial"
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_delete_session_refuses_active_session(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            session_id = await manager.connect_device("serial", {"port": "COM9"})
+
+            with pytest.raises(RuntimeError, match="active session"):
+                await manager.delete_session(session_id)
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_search_and_export_work_on_historical_session(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    from embpilot.core.database import SessionDatabase
+    from embpilot.core.engine import LogLine
+
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            # record a historical session directly, then leave it closed so the
+            # active-session shortcut in _open_session_db does NOT fire
+            hist_path = tmp_path / "sessions" / "hist.db"
+            hist_db = SessionDatabase(hist_path)
+            await hist_db.open()
+            await hist_db.bulk_insert_logs(
+                [
+                    LogLine(datetime.now(timezone.utc), "boot ok"),
+                    LogLine(datetime.now(timezone.utc), "ERROR: boom"),
+                ],
+                source="serial",
+            )
+            await hist_db.close()
+            await manager._main_db.register_session(
+                "hist-1", "board-x", "serial", str(hist_path)
+            )
+
+            results = await manager.search_session_logs("hist-1", "boom")
+            assert len(results) == 1
+            assert "boom" in results[0]["text"]
+
+            exported = await manager.export_session("hist-1", fmt="text")
+            assert "boot ok" in exported
+            assert "boom" in exported
+
+            as_json = await manager.export_session("hist-1", fmt="json")
+            assert "boom" in as_json
+            assert "boot ok" in as_json
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_search_session_logs_raises_for_unknown_session(tmp_path):
+    async def scenario() -> None:
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            with pytest.raises(KeyError):
+                await manager.search_session_logs("nope", "anything")
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
