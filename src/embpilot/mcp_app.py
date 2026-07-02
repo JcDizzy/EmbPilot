@@ -9,7 +9,7 @@ from pydantic import AnyUrl
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Resource
+from mcp.types import Resource, TextContent, Tool
 
 from embpilot import __version__
 from embpilot.config import EmbPilotConfig
@@ -43,6 +43,112 @@ def build_resource_catalog() -> list[Resource]:
             mimeType="application/json",
         ),
     ]
+
+
+def build_tool_catalog() -> list[Tool]:
+    return [
+        Tool(
+            name="connect_device",
+            description=(
+                "Connect to an embedded device over Serial, Telnet, or SSH. "
+                "Replaces any active connection."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "interface_type": {
+                        "type": "string",
+                        "enum": ["serial", "telnet", "ssh"],
+                    },
+                    "config": {
+                        "type": "object",
+                        "description": "Interface-specific connection parameters.",
+                    },
+                },
+                "required": ["interface_type", "config"],
+            },
+        ),
+        Tool(
+            name="send_command",
+            description=(
+                "Send a command line to the active device and return captured output "
+                "until the expect window closes."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string"},
+                    "expect_regex": {
+                        "type": "string",
+                        "description": "Optional regex marking the end of the response.",
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "default": 5000,
+                    },
+                },
+                "required": ["command"],
+            },
+        ),
+        Tool(
+            name="reset_target",
+            description=(
+                "Reset the active device. Only the 'reboot' method is currently supported."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string",
+                        "enum": ["reboot"],
+                        "default": "reboot",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="disconnect_device",
+            description="Disconnect the active device and close the session.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+    ]
+
+
+async def dispatch_tool(
+    manager: SessionManager, name: str, arguments: dict
+) -> list[TextContent]:
+    try:
+        if name == "connect_device":
+            session_id = await manager.connect_device(
+                interface_type=arguments["interface_type"],
+                config=arguments.get("config") or {},
+            )
+            return [TextContent(type="text", text=f"Connected. session_id={session_id}")]
+        if name == "send_command":
+            output = await manager.send_command(
+                command=arguments["command"],
+                expect_regex=arguments.get("expect_regex"),
+                timeout_ms=arguments.get("timeout_ms", 5000),
+            )
+            return [TextContent(type="text", text=output)]
+        if name == "reset_target":
+            message = await manager.reset_target(
+                method=arguments.get("method", "reboot")
+            )
+            return [TextContent(type="text", text=message)]
+        if name == "disconnect_device":
+            await manager.disconnect_device()
+            return [TextContent(type="text", text="Disconnected.")]
+        return [
+            TextContent(type="text", text=f"Error: unknown tool {name!r}")
+        ]
+    except Exception as exc:  # noqa: BLE001 — surface tool failures to the client
+        logger.exception("Tool %s failed", name)
+        return [TextContent(type="text", text=f"Error: {exc}")]
 
 
 def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
@@ -80,6 +186,14 @@ def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
     @app.subscribe_resource()
     async def subscribe_resource(uri: AnyUrl) -> None:
         logger.info("Client subscribed to %s", uri)
+
+    @app.list_tools()
+    async def list_tools() -> list[Tool]:
+        return build_tool_catalog()
+
+    @app.call_tool()
+    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+        return await dispatch_tool(manager, name, arguments)
 
     return app, manager
 

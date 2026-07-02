@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from mcp import types
@@ -40,7 +41,7 @@ def test_create_mcp_app_returns_app_and_session_manager(tmp_path: Path) -> None:
     assert isinstance(manager, SessionManager)
 
 
-def test_create_mcp_app_registers_only_resource_handlers(tmp_path: Path) -> None:
+def test_create_mcp_app_registers_resource_and_tool_handlers(tmp_path: Path) -> None:
     from embpilot.mcp_app import create_mcp_app
 
     config = build_config(tmp_path)
@@ -50,8 +51,8 @@ def test_create_mcp_app_registers_only_resource_handlers(tmp_path: Path) -> None
     assert types.ListResourcesRequest in app.request_handlers
     assert types.ReadResourceRequest in app.request_handlers
     assert types.SubscribeRequest in app.request_handlers
-    assert types.ListToolsRequest not in app.request_handlers
-    assert types.CallToolRequest not in app.request_handlers
+    assert types.ListToolsRequest in app.request_handlers
+    assert types.CallToolRequest in app.request_handlers
     assert types.ListPromptsRequest not in app.request_handlers
     assert types.GetPromptRequest not in app.request_handlers
 
@@ -98,3 +99,61 @@ def test_server_serve_forwards_to_new_runner(monkeypatch, tmp_path: Path) -> Non
     server.serve(config)
 
     assert captured["config"] is config
+
+
+def test_build_tool_catalog_lists_core_tools() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    names = {tool.name for tool in build_tool_catalog()}
+
+    assert {
+        "connect_device",
+        "send_command",
+        "reset_target",
+        "disconnect_device",
+    } <= names
+
+
+def test_reset_target_schema_excludes_dtr_and_rts() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    tool = next(t for t in build_tool_catalog() if t.name == "reset_target")
+    method_schema = tool.inputSchema["properties"]["method"]
+
+    assert method_schema.get("enum") == ["reboot"]
+
+
+def test_dispatch_tool_unknown_returns_error_text(tmp_path: Path) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    async def scenario() -> None:
+        manager = SessionManager(build_config(tmp_path))
+        await manager.start()
+        try:
+            result = await dispatch_tool(manager, "no_such_tool", {})
+        finally:
+            await manager.shutdown()
+
+        assert len(result) == 1
+        assert isinstance(result[0], types.TextContent)
+        assert "unknown tool" in result[0].text.lower()
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_tool_send_command_without_connection_returns_error(tmp_path: Path) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    async def scenario() -> None:
+        manager = SessionManager(build_config(tmp_path))
+        await manager.start()
+        try:
+            result = await dispatch_tool(manager, "send_command", {"command": "ls"})
+        finally:
+            await manager.shutdown()
+
+        assert len(result) == 1
+        assert isinstance(result[0], types.TextContent)
+        assert "error" in result[0].text.lower()
+
+    asyncio.run(scenario())
