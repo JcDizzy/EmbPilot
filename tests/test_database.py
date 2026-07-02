@@ -108,3 +108,42 @@ async def test_schema_loading():
     assert "CREATE TABLE IF NOT EXISTS sessions" in _schema_main
     assert "CREATE TABLE IF NOT EXISTS operation_history" in _schema_main
     assert "CREATE TABLE IF NOT EXISTS device_logs" in _schema_session
+
+
+@pytest.mark.asyncio
+async def test_main_database_get_session_db_path():
+    """Look up a single session's db_path without fetching every session."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        main = MainDatabase(d / "embpilot_main.db")
+        await main.open()
+
+        await main.register_session(
+            "sess-a", "COM3", "serial", str(d / "sessions" / "a.db")
+        )
+
+        assert await main.get_session_db_path("sess-a") == str(d / "sessions" / "a.db")
+        assert await main.get_session_db_path("does-not-exist") is None
+
+        await main.close()
+
+
+@pytest.mark.asyncio
+async def test_session_database_fetch_logs_is_ordered():
+    """fetch_logs returns rows in insertion order with limit/offset paging."""
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        session = SessionDatabase(d / "session_test.db")
+        await session.open()
+
+        lines = [LogLine(datetime.now(timezone.utc), f"line-{i}") for i in range(5)]
+        await session.bulk_insert_logs(lines, source="serial")
+
+        fetched = await session.fetch_logs()
+        assert [r["text"] for r in fetched] == [f"line-{i}" for i in range(5)]
+        assert all(set(r) == {"timestamp", "source", "text"} for r in fetched)
+
+        paged = await session.fetch_logs(limit=2, offset=1)
+        assert [r["text"] for r in paged] == ["line-1", "line-2"]
+
+        await session.close()

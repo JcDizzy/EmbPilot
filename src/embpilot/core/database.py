@@ -135,6 +135,16 @@ class MainDatabase:
         )
         await self._conn.commit()
 
+    async def get_session_db_path(self, session_id: str) -> Optional[str]:
+        """Return the db_path for a session, or None if not found."""
+        if self._conn is None:
+            return None
+        cursor = await self._conn.execute(
+            "SELECT db_path FROM sessions WHERE session_id = ?", (session_id,)
+        )
+        row = await cursor.fetchone()
+        return row["db_path"] if row else None
+
     # ── Operation history ────────────────────────────────────────────
 
     async def insert_operation(
@@ -284,6 +294,20 @@ class SessionDatabase:
         params.extend([limit, offset])
 
         cursor = await self._conn.execute(query, params)
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    async def fetch_logs(
+        self, limit: int = 5000, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        """Return device logs in insertion order (for export)."""
+        if self._conn is None:
+            return []
+        cursor = await self._conn.execute(
+            "SELECT timestamp, source, text FROM device_logs "
+            "ORDER BY id ASC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
