@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import pytest
 from pathlib import Path
 
 from mcp import types
@@ -41,7 +42,7 @@ def test_create_mcp_app_returns_app_and_session_manager(tmp_path: Path) -> None:
     assert isinstance(manager, SessionManager)
 
 
-def test_create_mcp_app_registers_resource_and_tool_handlers(tmp_path: Path) -> None:
+def test_create_mcp_app_registers_all_handlers(tmp_path: Path) -> None:
     from embpilot.mcp_app import create_mcp_app
 
     config = build_config(tmp_path)
@@ -53,8 +54,8 @@ def test_create_mcp_app_registers_resource_and_tool_handlers(tmp_path: Path) -> 
     assert types.SubscribeRequest in app.request_handlers
     assert types.ListToolsRequest in app.request_handlers
     assert types.CallToolRequest in app.request_handlers
-    assert types.ListPromptsRequest not in app.request_handlers
-    assert types.GetPromptRequest not in app.request_handlers
+    assert types.ListPromptsRequest in app.request_handlers
+    assert types.GetPromptRequest in app.request_handlers
 
 
 def test_cli_main_calls_run_stdio_mcp_server(monkeypatch, tmp_path: Path) -> None:
@@ -157,3 +158,48 @@ def test_dispatch_tool_send_command_without_connection_returns_error(tmp_path: P
         assert "error" in result[0].text.lower()
 
     asyncio.run(scenario())
+
+
+def test_build_prompt_catalog_lists_prompts() -> None:
+    from embpilot.mcp_app import build_prompt_catalog
+
+    names = {prompt.name for prompt in build_prompt_catalog()}
+
+    assert {"analyze_crash_log", "hardware_sanity_check"} <= names
+
+
+def test_render_analyze_crash_log_points_at_live_log() -> None:
+    from embpilot.mcp_app import render_prompt
+
+    text = render_prompt("analyze_crash_log", {})
+
+    assert "device://live_log" in text
+
+
+def test_render_hardware_sanity_omits_hardcoded_commands() -> None:
+    from embpilot.mcp_app import render_prompt
+
+    text = render_prompt("hardware_sanity_check", {})
+    lowered = text.lower()
+
+    # spec §7.6: no hardcoded generic command bundle
+    for forbidden in ("dmesg", "uname", "help", "version"):
+        assert forbidden not in lowered
+    # it should instead route through send_command and session context
+    assert "send_command" in lowered
+    assert "device://session_info" in lowered
+
+
+def test_render_hardware_sanity_incorporates_focus_argument() -> None:
+    from embpilot.mcp_app import render_prompt
+
+    text = render_prompt("hardware_sanity_check", {"focus": "power rails"})
+
+    assert "power rails" in text
+
+
+def test_render_unknown_prompt_raises() -> None:
+    from embpilot.mcp_app import render_prompt
+
+    with pytest.raises(ValueError):
+        render_prompt("nonexistent", {})

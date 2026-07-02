@@ -9,7 +9,15 @@ from pydantic import AnyUrl
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Resource, TextContent, Tool
+from mcp.types import (
+    GetPromptResult,
+    Prompt,
+    PromptArgument,
+    PromptMessage,
+    Resource,
+    TextContent,
+    Tool,
+)
 
 from embpilot import __version__
 from embpilot.config import EmbPilotConfig
@@ -151,6 +159,70 @@ async def dispatch_tool(
         return [TextContent(type="text", text=f"Error: {exc}")]
 
 
+def build_prompt_catalog() -> list[Prompt]:
+    return [
+        Prompt(
+            name="analyze_crash_log",
+            description=(
+                "Analyze a recent crash, panic, hang, or unexpected reboot captured "
+                "in the live device log."
+            ),
+            arguments=[
+                PromptArgument(
+                    name="context",
+                    description="Optional extra context (board, firmware, symptoms).",
+                    required=False,
+                ),
+            ],
+        ),
+        Prompt(
+            name="hardware_sanity_check",
+            description="Guide a hardware sanity check of the connected device.",
+            arguments=[
+                PromptArgument(
+                    name="focus",
+                    description="Optional area to focus on (power, peripherals, boot, ...).",
+                    required=False,
+                ),
+            ],
+        ),
+    ]
+
+
+def render_prompt(name: str, arguments: dict) -> str:
+    if name == "analyze_crash_log":
+        context = (arguments.get("context") or "").strip()
+        body = (
+            "You are an embedded debugging assistant. Read the live device log via the "
+            "device://live_log resource (or subscribe for updates) and look for crash "
+            "signatures, panics, hangs, or unexpected reboots. Form a root-cause "
+            "hypothesis and propose the next diagnostic commands to send via send_command."
+        )
+        if context:
+            body += f"\n\nAdditional context:\n{context}"
+        return body
+    if name == "hardware_sanity_check":
+        focus = (arguments.get("focus") or "general health").strip()
+        return (
+            f"You are an embedded debugging assistant. Perform a hardware sanity check "
+            f"focused on: {focus}. Inspect device://session_info to confirm the connection "
+            f"is active. Determine the appropriate diagnostic commands for THIS board from "
+            f"the session context and the user — do not assume a fixed command set. Use "
+            f"send_command to run the agreed commands and read device://live_log to "
+            f"interpret the results."
+        )
+    raise ValueError(f"Unknown prompt: {name!r}")
+
+
+def _prompt_result(name: str, text: str) -> GetPromptResult:
+    return GetPromptResult(
+        description=f"EmbPilot prompt: {name}",
+        messages=[
+            PromptMessage(role="user", content=TextContent(type="text", text=text)),
+        ],
+    )
+
+
 def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
     manager = SessionManager(config)
     app = Server("embpilot", version=__version__)
@@ -194,6 +266,14 @@ def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
     @app.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await dispatch_tool(manager, name, arguments)
+
+    @app.list_prompts()
+    async def list_prompts() -> list[Prompt]:
+        return build_prompt_catalog()
+
+    @app.get_prompt()
+    async def get_prompt(name: str, arguments: dict) -> GetPromptResult:
+        return _prompt_result(name, render_prompt(name, arguments))
 
     return app, manager
 
