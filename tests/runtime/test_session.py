@@ -302,3 +302,76 @@ def test_overlapping_send_command_calls_do_not_mix_outputs(tmp_path, monkeypatch
             await manager.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_reset_target_reboot_writes_reboot_command(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            message = await manager.reset_target()
+
+            assert message == "Reset command sent (reboot)."
+            assert fake.writes == [b"reboot\n"]
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_reset_target_rejects_unsupported_method(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            with pytest.raises(ValueError):
+                await manager.reset_target(method="dtr")
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_reset_target_requires_active_connection(tmp_path):
+    async def scenario() -> None:
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            with pytest.raises(RuntimeError, match="No active device connection"):
+                await manager.reset_target()
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
