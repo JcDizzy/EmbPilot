@@ -13,11 +13,15 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **`disconnect_device()`**：主动断开连接，释放系统串口或网络句柄。
 * **`send_command(command, expect_regex, timeout_ms)`**：向设备发送指令（如 `help`, `ifconfig`）。支持传入正则表达式 `expect_regex`；返回值应是该条命令窗口内采集到的输出，在本地匹配成功后立即截断返回，若未匹配则在超时点返回已收集窗口内容，以优化响应时间并避免把无关刷屏日志混进结果。
 * **`reset_target(method)`**：复位目标板。当前仅支持 `reboot`（向设备发送 reboot 文本命令）；DTR/RTS 引脚电平控制在 runtime 真正支持前不纳入公共接口，避免发布无法兑现的复位能力。
+* **`list_sessions()`**：列出所有已记录的会话（按时间倒序），含 `session_id`、接口、设备名、起止时间、状态等。
+* **`delete_session(session_id)`**：删除某个历史会话的数据库文件与索引记录。活动会话不可删除（须先 `disconnect_device`）。
+* **`search_history_logs(session_id, keyword, ...)`**：在指定会话（活动或历史）的日志中按关键字搜索，可选 `time_window_seconds`（仅对活动会话有意义）。结果为 JSON。
+* **`export_session(session_id, format, limit, ...)`**：导出指定会话的日志，`format` 支持 `text`/`json`，输出受 `limit`（默认 2000）封顶。
 
 ### 2. Resources (AI 可读取的数据源)
 * **`device://live_log`**：实时日志流，支持 AI 客户端通过 `resources/subscribe` 机制动态监听物理设备的输出。
 * **`device://session_info`**：会话元数据快照。返回当前连接的 `session_id`、接口类型、设备名、连接摘要、启动时间、状态、最近日志时间、日志计数等运行时真实信息。这里不再假设 EmbPilot 能对所有嵌入式目标统一发起一组“通用 sysinfo 探测命令”。
-* **`device://analytics`**：基于本地数据库的异常聚合统计。返回近期错误日志频次表，避免 AI 检索海量原始文本。
+* **`device://analytics`**：基于本地数据库的异常聚合统计。返回近期错误日志频次表，避免 AI 检索海量原始文本。（尚未作为 MCP 资源暴露；core 层已有 `SessionDatabase.get_analytics` 原语支撑。）
 
 ### 3. Prompts (场景引导提示词模版)
 * **`analyze_crash_log`**：引导 AI 自动捕获 `HardFault`、`Panic` 或 `Segmentation fault` 的上下文并进行根因分析。

@@ -1,5 +1,37 @@
 # Progress
 
+## 2026-07-02 — session-query tools
+
+### Done
+- Completed the session-query tools stage in the `feat/runtime-rearchitecture`
+  worktree — exposes the four tools previously listed as "planned":
+  - core primitives: added `MainDatabase.get_session_db_path(session_id)` and
+    `SessionDatabase.fetch_logs(limit, offset)` to `src/embpilot/core/database.py`
+  - runtime layer: added a `_open_session_db(session_id)` asynccontextmanager on
+    `SessionManager` (reuses the active connection when the id matches, otherwise
+    opens the historical db transiently) plus `list_sessions`, `delete_session`
+    (refuses the active session), `search_session_logs`, and `export_session`
+  - mcp layer: extended `build_tool_catalog()` and `dispatch_tool()` in
+    `mcp_app.py` with `list_sessions`, `delete_session`, `search_history_logs`,
+    and `export_session`; JSON-shaped results are pretty-printed
+  - tests: added coverage in `tests/test_database.py`,
+    `tests/runtime/test_session.py` (including the active-session shortcut
+    path), and `tests/integration/test_mcp_app.py`
+  - ran independent spec-compliance and code-quality reviews; addressed the one
+    medium finding by adding the active-session-shortcut test
+- Verified with the project's pytest command; all tests pass except
+  `tests/test_rag.py` (excluded in the slim venv — needs lancedb/fastembed).
+
+### Known issues / pitfalls
+- `search_history_logs` accepts a `time_window_seconds` filter, but it is only
+  meaningful for the active session; historical sessions will usually return
+  empty for a "last N seconds" window. Documented in the spec.
+- `device://analytics` remains the only MCP surface item still deferred; the
+  `SessionDatabase.get_analytics` primitive already backs it.
+
+### Next good step
+- Expose `device://analytics` as a resource, or pursue packaging/release work.
+
 ## 2026-07-02
 
 ### Done

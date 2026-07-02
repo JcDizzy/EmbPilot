@@ -14,6 +14,7 @@ devices over Serial, Telnet, or SSH.
 - **Expose active-session resources** through MCP, including `device://live_log`
   and `device://session_info`
 - **Persist sessions** in SQLite (WAL mode) for RAG-backed historical search
+- **Search and export** recorded sessions (by session id, keyword, or full export)
 - **Local vector search** (fastembed + LanceDB) over Datasheets, Error Code manuals, and KB articles
 - **Analyse crash logs** and run hardware sanity checks with guided prompts
 

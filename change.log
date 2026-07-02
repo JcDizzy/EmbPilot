@@ -13,13 +13,13 @@
 - Async producer-consumer pipeline (LogProducer, ExpectConsumer, DbConsumer → SessionDatabase)
 - Auto-flush DbConsumer with periodic timer (50ms interval, batch_size=200)
 - Hardware drivers: SerialDevice (pyserial-asyncio), TelnetDevice (telnetlib3), SshDevice (asyncssh)
-- MCP Server integration with 4 tools, 2 resources, 2 prompts:
-  - Tools: connect_device, send_command (with expect_regex), reset_target (reboot only), disconnect_device
+- MCP Server integration with 8 tools, 2 resources, 2 prompts:
+  - Tools: connect_device, send_command (with expect_regex), reset_target (reboot only),
+    disconnect_device, list_sessions, delete_session, search_history_logs, export_session
   - Resources: device://live_log (subscribable), device://session_info
   - Prompts: analyze_crash_log, hardware_sanity_check
-- Planned MCP surface not yet exposed: search_history_logs, list_sessions, delete_session,
-  export_session tools and a device://analytics resource; the database primitives in
-  core/database.py already back the session-query tools.
+- Planned MCP surface not yet exposed: a device://analytics resource (the
+  SessionDatabase.get_analytics primitive already backs it).
 - Session lifecycle management (auto-disconnect on reconnect, auto-cleanup on startup)
 - Retention policy: configurable max_days (30) + max_gb (5) with auto-cleanup
 - Local RAG engine: fastembed + LanceDB for semantic document search
@@ -51,3 +51,10 @@
 - MCP prompts layer: added `build_prompt_catalog()`, module-level `render_prompt()`, and `_prompt_result()` in `mcp_app.py`, registered `@app.list_prompts`/`@app.get_prompt`; migrated analyze_crash_log (still depends on device://live_log) and hardware_sanity_check (no longer hardcodes a generic command bundle — relies on session context and user/agent-supplied commands per spec §7.6).
 - MCP tools/prompts tests: extended `tests/runtime/test_session.py` with reset_target coverage and `tests/integration/test_mcp_app.py` with tool catalog/schema, dispatch_tool error paths, and prompt catalog/render coverage; evolved the handler-registration test to assert all resource/tool/prompt handlers are registered.
 - docs alignment: updated `docs/mcp_embedded_debug_spec.md` (reset_target reboot-only, hardware_sanity without hardcoded commands), corrected the `change.log` tool/resource inventory to the implemented 4 tools / 2 resources, added a reset feature line to `README.md`, and recorded stage completion in `PROGRESS.md`.
+[2026-07-02]
+- session-query tools plan: added `docs/superpowers/plans/2026-07-02-session-query-tools-implementation.md` decomposing the four deferred tools into core/runtime/mcp TDD tasks.
+- core query primitives: added `MainDatabase.get_session_db_path(session_id)` (single-row db_path lookup) and `SessionDatabase.fetch_logs(limit, offset)` (ordered bulk read for export) to `src/embpilot/core/database.py`.
+- runtime session-query methods: added a `_open_session_db(session_id)` asynccontextmanager to `SessionManager` that reuses the active connection or opens a historical db transiently, plus `list_sessions`, `delete_session` (refuses the active session), `search_session_logs`, and `export_session` (text/json, limit-capped).
+- MCP session-query tools: extended `build_tool_catalog()` and `dispatch_tool()` with `list_sessions`, `delete_session`, `search_history_logs`, and `export_session`; JSON results are pretty-printed and errors surface as TextContent.
+- session-query tests: added coverage in `tests/test_database.py`, `tests/runtime/test_session.py` (including the active-session shortcut), and `tests/integration/test_mcp_app.py`.
+- docs alignment: updated `docs/mcp_embedded_debug_spec.md` with the four new tools and an "not yet exposed" note on device://analytics, and refreshed `change.log`/`PROGRESS.md` for the stage.
