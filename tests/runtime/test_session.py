@@ -595,3 +595,36 @@ def test_get_analytics_aggregates_active_session_errors(tmp_path, monkeypatch):
             await manager.shutdown()
 
     asyncio.run(scenario())
+
+
+def test_search_session_logs_flushes_pending_batch_for_active(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+            framing_timeout_ms=5,
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+            active_id = manager.get_session_info().session_id
+
+            # feed a unique marker that lands in the DbSink batch (< batch_size)
+            # and is NOT yet in the db (periodic flush is 1s away)
+            fake.emit_line("UNIQUE_MARKER_xyz")
+            await asyncio.sleep(0.05)
+
+            results = await manager.search_session_logs(active_id, "UNIQUE_MARKER_xyz")
+            assert any("UNIQUE_MARKER_xyz" in r["text"] for r in results)
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())

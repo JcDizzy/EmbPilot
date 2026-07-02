@@ -63,6 +63,7 @@ class SessionManager:
         self._producer: LogProducer | None = None
         self._producer_task: asyncio.Task[None] | None = None
         self._session_db: SessionDatabase | None = None
+        self._db_sink: DbSink | None = None
 
     async def start(self) -> None:
         self._config.ensure_data_dirs()
@@ -95,10 +96,11 @@ class SessionManager:
         )
 
         ring = RingBuffer()
+        db_sink = DbSink(session_db, source=interface_type)
         dispatcher = SessionDispatcher(
             [
                 RingBufferSink(ring),
-                DbSink(session_db, source=interface_type),
+                db_sink,
                 _SessionInfoSink(lambda: self._session_info),
                 _ExpectSink(self._expect),
             ]
@@ -111,6 +113,7 @@ class SessionManager:
 
         self._device = device
         self._session_db = session_db
+        self._db_sink = db_sink
         self._ring = ring
         self._dispatcher = dispatcher
         self._producer = producer
@@ -195,6 +198,7 @@ class SessionManager:
 
         self._device = None
         self._session_db = None
+        self._db_sink = None
         self._dispatcher = None
         self._producer = None
         self._producer_task = None
@@ -271,6 +275,14 @@ class SessionManager:
             )
         await self._main_db.delete_session(session_id)
 
+    async def _flush_active_sink(self, session_id: str) -> None:
+        if (
+            self._session_info is not None
+            and self._session_info.session_id == session_id
+            and self._db_sink is not None
+        ):
+            await self._db_sink.flush()
+
     async def search_session_logs(
         self,
         session_id: str,
@@ -279,6 +291,7 @@ class SessionManager:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
+        await self._flush_active_sink(session_id)
         async with self._open_session_db(session_id) as db:
             return await db.search_logs(keyword, time_window_seconds, limit, offset)
 
@@ -289,6 +302,7 @@ class SessionManager:
         limit: int = 2000,
         offset: int = 0,
     ) -> str:
+        await self._flush_active_sink(session_id)
         async with self._open_session_db(session_id) as db:
             rows = await db.fetch_logs(limit=limit, offset=offset)
         if fmt == "json":
