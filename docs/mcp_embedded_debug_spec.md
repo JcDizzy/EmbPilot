@@ -12,7 +12,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **`connect_device(interface_type, config)`**：建立硬件连接。支持 `serial`（参数：端口号、波特率）及 `telnet/ssh`（参数：IP、端口、用户名/密码）。
 * **`disconnect_device()`**：主动断开连接，释放系统串口或网络句柄。
 * **`send_command(command, expect_regex, timeout_ms)`**：向设备发送指令（如 `help`, `ifconfig`）。支持传入正则表达式 `expect_regex`；返回值应是该条命令窗口内采集到的输出，在本地匹配成功后立即截断返回，若未匹配则在超时点返回已收集窗口内容，以优化响应时间并避免把无关刷屏日志混进结果。
-* **`reset_target(method)`**：复位目标板。支持通过串口 DTR/RTS 引脚电平控制或发送 `reboot` 文本命令。
+* **`reset_target(method)`**：复位目标板。当前仅支持 `reboot`（向设备发送 reboot 文本命令）；DTR/RTS 引脚电平控制在 runtime 真正支持前不纳入公共接口，避免发布无法兑现的复位能力。
 
 ### 2. Resources (AI 可读取的数据源)
 * **`device://live_log`**：实时日志流，支持 AI 客户端通过 `resources/subscribe` 机制动态监听物理设备的输出。
@@ -21,7 +21,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 
 ### 3. Prompts (场景引导提示词模版)
 * **`analyze_crash_log`**：引导 AI 自动捕获 `HardFault`、`Panic` 或 `Segmentation fault` 的上下文并进行根因分析。
-* **`hardware_sanity_check`**：引导 AI 执行一系列基准测试命令，评估单片机外设状态。
+* **`hardware_sanity_check`**：引导 AI 评估单片机外设状态。提示词不再硬编码一组“通用”命令（如 help/version/dmesg），而是依赖当前会话上下文与用户/agent 提供的命令，通过 `send_command` 执行并读取 `device://live_log` 解读结果。
 
 ---
 

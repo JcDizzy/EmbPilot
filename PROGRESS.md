@@ -1,5 +1,50 @@
 # Progress
 
+## 2026-07-02
+
+### Done
+- Completed the MCP tools & prompts migration stage (spec §7, Stage 3) in the
+  `feat/runtime-rearchitecture` worktree:
+  - added `SessionManager.reset_target(method="reboot")` to
+    `src/embpilot/runtime/session.py` — reboot only; non-reboot methods raise
+    ValueError, no active connection raises RuntimeError, and the write +
+    `insert_operation` path mirrors `send_command` (spec §7.7)
+  - wired the four core MCP tools in `src/embpilot/mcp_app.py` via
+    `build_tool_catalog()` + module-level `dispatch_tool()` +
+    `@app.list_tools`/`@app.call_tool`; tool failures surface as TextContent
+    error messages instead of crashing the transport
+  - migrated the two prompts via `build_prompt_catalog()` + module-level
+    `render_prompt()` + `_prompt_result()` + `@app.list_prompts`/`@app.get_prompt`;
+    `analyze_crash_log` still routes to `device://live_log`, and
+    `hardware_sanity_check` no longer hardcodes a generic command bundle (spec §7.6)
+  - extended `tests/runtime/test_session.py` and `tests/integration/test_mcp_app.py`
+    with reset_target, tool catalog/schema, dispatch_tool error paths, and prompt
+    catalog/render coverage; evolved the handler-registration test to assert all
+    resource/tool/prompt handlers
+  - ran independent spec-compliance and code-quality reviews; addressed review
+    feedback by tightening `arguments` type hints to `dict[str, Any]` and
+    documenting the reset_target line-terminator design choice
+  - aligned `docs/mcp_embedded_debug_spec.md` (reset_target reboot-only,
+    hardware_sanity without hardcoded commands), corrected the `change.log`
+    tool/resource inventory to the implemented 4 tools / 2 resources / 2 prompts,
+    and added a reset feature line to `README.md`
+- Verified the stage with the project's pytest command; all tests pass except
+  `tests/test_rag.py`, which is excluded in the slim verification venv because it
+  requires `lancedb`/`fastembed`.
+
+### Known issues / pitfalls
+- `tests/test_rag.py` cannot run in the slim verification venv (no
+  `lancedb`/`fastembed`); it is unrelated to this stage and was excluded from
+  local verification. A full venv with the heavy deps is needed to exercise it.
+- This machine has no Python 3.11; verification used the isolated `.venv`
+  (Python 3.12). Commands in the plan/spec text still prescribe `py -3.11` to
+  match `requires-python = ">=3.11"`.
+
+### Next good step
+- Expose the remaining session-query tools (`list_sessions`, `delete_session`,
+  `export_session`, `search_history_logs`) — the database primitives in
+  `core/database.py` already back them, so this is pure MCP-layer wiring.
+
 ## 2026-06-27
 
 ### Done

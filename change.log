@@ -13,11 +13,13 @@
 - Async producer-consumer pipeline (LogProducer, ExpectConsumer, DbConsumer → SessionDatabase)
 - Auto-flush DbConsumer with periodic timer (50ms interval, batch_size=200)
 - Hardware drivers: SerialDevice (pyserial-asyncio), TelnetDevice (telnetlib3), SshDevice (asyncssh)
-- MCP Server integration with 8 tools, 3 resources, 2 prompts:
-  - Tools: connect_device, disconnect_device, send_command (with expect_regex), reset_target,
-    search_history_logs, list_sessions, delete_session, export_session
-  - Resources: device://live_log (subscribable), device://sysinfo, device://analytics
+- MCP Server integration with 4 tools, 2 resources, 2 prompts:
+  - Tools: connect_device, send_command (with expect_regex), reset_target (reboot only), disconnect_device
+  - Resources: device://live_log (subscribable), device://session_info
   - Prompts: analyze_crash_log, hardware_sanity_check
+- Planned MCP surface not yet exposed: search_history_logs, list_sessions, delete_session,
+  export_session tools and a device://analytics resource; the database primitives in
+  core/database.py already back the session-query tools.
 - Session lifecycle management (auto-disconnect on reconnect, auto-cleanup on startup)
 - Retention policy: configurable max_days (30) + max_gb (5) with auto-cleanup
 - Local RAG engine: fastembed + LanceDB for semantic document search
@@ -42,3 +44,10 @@
 - MCP app resources: replaced the old fake `device://sysinfo` registration with `device://session_info`, kept `device://live_log`, and added focused integration coverage in `tests/integration/test_mcp_app.py` for the resource catalog and resource-only handler registration.
 - compatibility entrypoints: turned `src/embpilot/server.py` into a thin compatibility wrapper and updated `src/embpilot/cli.py` to launch through the new MCP app path, with focused tests covering exact Task 6 resource URIs plus `cli.main(...)` and `server.serve(...)` forwarding to the new runner.
 - packaging verification and runtime docs: added installed-package coverage in `tests/integration/test_cli.py` to prove `schema_main.sql` and `schema_session.sql` ship inside `embpilot/core`, declared `core/*.sql` in `pyproject.toml`, and aligned the README/spec/progress notes with the `mcp_app.py` + `runtime/` split and the `device://session_info` resource direction.
+[2026-07-02]
+- MCP tools/prompts migration plan: added `docs/superpowers/plans/2026-07-02-mcp-tools-prompts-migration-implementation.md` decomposing the spec §7 tools/prompts wiring into TDD tasks.
+- runtime reset_target: added `SessionManager.reset_target(method="reboot")` supporting reboot only; non-reboot methods raise ValueError and a missing active connection raises RuntimeError. DTR/RTS are intentionally excluded from the public surface until truly supported (spec §7.7).
+- MCP tools layer: added `build_tool_catalog()` and module-level `dispatch_tool()` in `mcp_app.py`, registered `@app.list_tools`/`@app.call_tool`, and wired connect_device/send_command/reset_target/disconnect_device to the SessionManager; tool failures surface as TextContent error messages.
+- MCP prompts layer: added `build_prompt_catalog()`, module-level `render_prompt()`, and `_prompt_result()` in `mcp_app.py`, registered `@app.list_prompts`/`@app.get_prompt`; migrated analyze_crash_log (still depends on device://live_log) and hardware_sanity_check (no longer hardcodes a generic command bundle — relies on session context and user/agent-supplied commands per spec §7.6).
+- MCP tools/prompts tests: extended `tests/runtime/test_session.py` with reset_target coverage and `tests/integration/test_mcp_app.py` with tool catalog/schema, dispatch_tool error paths, and prompt catalog/render coverage; evolved the handler-registration test to assert all resource/tool/prompt handlers are registered.
+- docs alignment: updated `docs/mcp_embedded_debug_spec.md` (reset_target reboot-only, hardware_sanity without hardcoded commands), corrected the `change.log` tool/resource inventory to the implemented 4 tools / 2 resources, added a reset feature line to `README.md`, and recorded stage completion in `PROGRESS.md`.
