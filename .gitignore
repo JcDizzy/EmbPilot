@@ -18,3 +18,7 @@ htmlcov/
 *.db
 *.db-shm
 *.db-wal
+
+# local Claude Code MCP server config + runtime data
+.mcp.json
+.live-mcp-data/
