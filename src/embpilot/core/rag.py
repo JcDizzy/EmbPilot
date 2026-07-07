@@ -14,6 +14,8 @@ injects it into the AI context to eliminate hallucinations.
 from __future__ import annotations
 
 import logging
+import inspect
+import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -108,7 +110,6 @@ class RagEngine:
         -------
         The document ID.
         """
-        import json
         import uuid
 
         if self._table is None:
@@ -165,10 +166,11 @@ class RagEngine:
 
         return [
             {
+                "id": r.get("id", ""),
                 "text": r["text"],
                 "score": float(r.get("_distance", 0)),
                 "source": r.get("source", ""),
-                "metadata": r.get("metadata", "{}"),
+                "metadata": _load_metadata(r.get("metadata", "{}")),
             }
             for r in results
         ]
@@ -190,6 +192,26 @@ class RagEngine:
         """Return distinct source values."""
         if self._table is None:
             return []
-        result = await self._table.search().limit(1).to_list()
-        # LanceDB doesn't have a native distinct; defer to count.
-        return list(set(r.get("source", "") for r in result))
+        count = await self.count_documents()
+        if count == 0:
+            return []
+        rows = await self._all_rows(limit=count)
+        return sorted({r.get("source", "") for r in rows if r.get("source")})
+
+    async def _all_rows(self, limit: int) -> list[dict[str, Any]]:
+        if hasattr(self._table, "to_pandas"):
+            data = self._table.to_pandas()
+            if inspect.isawaitable(data):
+                data = await data
+            return data.head(limit).to_dict("records")
+        return await self._table.search().limit(limit).to_list()
+
+
+def _load_metadata(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    try:
+        loaded = json.loads(value or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}

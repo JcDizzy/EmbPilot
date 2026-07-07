@@ -13,10 +13,10 @@
 - Async producer-consumer pipeline (LogProducer, ExpectConsumer, DbConsumer → SessionDatabase)
 - Auto-flush DbConsumer with periodic timer (50ms interval, batch_size=200)
 - Hardware drivers: SerialDevice (pyserial-asyncio), TelnetDevice (telnetlib3), SshDevice (asyncssh)
-- MCP Server integration with 9 tools, 3 resources, 2 prompts:
+- MCP Server integration with 13 tools, 3 resources, 2 prompts:
   - Tools: connect_device, send_command (with expect_regex), reset_target (reboot only),
     disconnect_device, list_sessions, delete_session, search_history_logs, export_session,
-    export_operation_history
+    export_operation_history, ingest_doc, search_docs, list_doc_sources, delete_doc
   - Resources: device://live_log (snapshot), device://session_info, device://analytics
   - Prompts: analyze_crash_log, hardware_sanity_check
 - Session lifecycle management (auto-disconnect on reconnect, auto-cleanup on startup)
@@ -73,3 +73,5 @@
 - P1 safety boundaries: added dangerous-command confirmation, delete-session confirmation, managed-directory path checks before deleting session DB files, command/search/export/audit caps, MCP tool rate limiting, sensitive operation-history redaction, and a new `export_operation_history` MCP tool for redacted audit export.
 [2026-07-07]
 - P2 logging: added `level`/`tag` metadata to session logs, migrated legacy session DBs, replaced keyword `LIKE` search with SQLite FTS5, made analytics patterns configurable, returned metadata in analytics/export rows, and updated retention accounting to use real DB/WAL/SHM file sizes.
+[2026-07-07]
+- P2 RAG productization: added MCP tools for document ingest/search/source listing/deletion, kept RAG lazy and optional behind `embpilot[rag]`, returned `search_docs` references in `structuredContent`, fixed `RagEngine.list_sources()`, parsed metadata in search results, and updated `analyze_crash_log` to retrieve datasheet/error manual/KB references.

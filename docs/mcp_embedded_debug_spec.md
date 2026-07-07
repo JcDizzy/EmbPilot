@@ -18,6 +18,10 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **`search_history_logs(session_id, keyword, ...)`**：在指定会话（活动或历史）的日志中按关键字搜索，可选 `time_window_seconds`（仅对活动会话有意义）。结果为 JSON。
 * **`export_session(session_id, format, limit, ...)`**：导出指定会话的日志，`format` 支持 `text`/`json`，输出受 `limit`（默认 2000）封顶。
 * **`export_operation_history(session_id, limit, ...)`**：导出脱敏后的操作审计记录，支持按 session 过滤，敏感连接参数（如 password、key_file、token）不会原样返回。
+* **`ingest_doc(text, source, metadata, doc_id)`**：向可选本地 RAG 库导入文档片段（需要安装 `embpilot[rag]`）。
+* **`search_docs(query, top_k, source)`**：检索 datasheet、error manual、troubleshooting KB 等本地文档，返回文本 JSON，同时在 MCP tool result 的 `structuredContent.results` 中提供可结构化引用的片段。
+* **`list_doc_sources()`**：列出本地 RAG 库中的文档来源。
+* **`delete_doc(doc_id, confirm)`**：删除 RAG 文档片段，必须显式 `confirm=true`。
 
 ### 2. Resources (AI 可读取的数据源)
 * **`device://live_log`**：活动会话最近日志快照。当前实现不注册 `resources/subscribe`，避免在尚未发送 `notifications/resources/updated` 的情况下宣称支持动态订阅。
@@ -25,7 +29,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **`device://analytics`**：基于本地数据库的异常聚合统计。返回当前活动会话中错误类日志（error/fail/panic/fault 等）的频次聚合表，避免 AI 检索海量原始文本。无活动会话时返回空数组。
 
 ### 3. Prompts (场景引导提示词模版)
-* **`analyze_crash_log`**：引导 AI 自动捕获 `HardFault`、`Panic` 或 `Segmentation fault` 的上下文并进行根因分析。
+* **`analyze_crash_log`**：引导 AI 自动捕获 `HardFault`、`Panic` 或 `Segmentation fault` 的上下文并进行根因分析；提示词会要求优先使用 `search_docs` 检索 datasheet / error manual / KB 片段并在分析中引用。
 * **`hardware_sanity_check`**：引导 AI 评估单片机外设状态。提示词不再硬编码一组“通用”命令（如 help/version/dmesg），而是依赖当前会话上下文与用户/agent 提供的命令，通过 `send_command` 执行并读取 `device://live_log` 解读结果。
 
 ---
@@ -102,6 +106,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * 引入轻量化本地向量数据库（如 `Chroma` 或 `LanceDB`），利用本地小模型（如 `bge-m3`）进行文本向量化。
 * **知识库内容**：提前导入当前芯片的 **Datasheet（数据手册位域定义）**、**SDK Error Code 说明书** 以及**项目历史故障解决排错指南 (Troubleshoot KB)**。
 * **运行逻辑**：当 `device_logs` 表中高频触发某一特定错误码时，RAG 管道自动检索对应的手册说明，将精确的物理硬件定义作为背景上下文随 Tool 一并注入 AI 客户端，彻底消除 AI 对硬件寄存器定义的幻觉。
+* **MCP 产品化接口**：RAG 通过 `ingest_doc`、`search_docs`、`list_doc_sources`、`delete_doc` 暴露给 agent。`search_docs` 同时返回可读 JSON 文本和 `structuredContent.results`，便于 crash analysis prompt 引用。
 
 ---
 

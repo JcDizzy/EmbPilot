@@ -65,6 +65,7 @@ class SessionManager:
         self._producer_task: asyncio.Task[None] | None = None
         self._session_db: SessionDatabase | None = None
         self._db_sink: DbSink | None = None
+        self._rag_engine: Any | None = None
 
     async def start(self) -> None:
         self._config.ensure_data_dirs()
@@ -77,6 +78,9 @@ class SessionManager:
 
     async def shutdown(self) -> None:
         await self.disconnect_device()
+        if self._rag_engine is not None:
+            await self._rag_engine.close()
+            self._rag_engine = None
         await self._main_db.close()
 
     async def connect_device(self, interface_type: str, config: dict[str, Any]) -> str:
@@ -381,10 +385,71 @@ class SessionManager:
         )
         return json.dumps(rows, ensure_ascii=False, indent=2)
 
+    async def ingest_doc(
+        self,
+        text: str,
+        source: str = "unknown",
+        metadata: dict[str, Any] | None = None,
+        doc_id: str | None = None,
+    ) -> dict[str, Any]:
+        engine = await self._get_rag_engine()
+        metadata = dict(metadata or {})
+        metadata.setdefault("source", source)
+        doc_id = await engine.ingest_document(text, metadata=metadata, doc_id=doc_id)
+        await self._main_db.insert_operation(
+            actor="AI",
+            action_type="ingest_doc",
+            detail={"doc_id": doc_id, "source": source, "metadata": metadata},
+        )
+        return {"doc_id": doc_id, "source": source}
+
+    async def search_docs(
+        self,
+        query: str,
+        top_k: int = 5,
+        source: str | None = None,
+    ) -> list[dict[str, Any]]:
+        engine = await self._get_rag_engine()
+        filter_expr = None
+        if source:
+            safe_source = source.replace("'", "''")
+            filter_expr = f"source = '{safe_source}'"
+        return await engine.search(query, top_k=top_k, filter_expr=filter_expr)
+
+    async def list_doc_sources(self) -> list[str]:
+        engine = await self._get_rag_engine()
+        return await engine.list_sources()
+
+    async def delete_doc(self, doc_id: str, confirm: bool = False) -> dict[str, Any]:
+        if not confirm:
+            raise PermissionError("delete_doc requires confirm=true")
+        engine = await self._get_rag_engine()
+        await engine.delete_document(doc_id)
+        await self._main_db.insert_operation(
+            actor="AI",
+            action_type="delete_doc",
+            detail={"doc_id": doc_id},
+        )
+        return {"deleted": doc_id}
+
     def _resolve_session_path(self, session_id: str, device_name: str) -> Path:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         safe_name = _sanitize_device_name(device_name)
         return self._config.session_data_dir / f"session_{stamp}_{safe_name}_{session_id[:8]}.db"
+
+    async def _get_rag_engine(self) -> Any:
+        if self._rag_engine is not None:
+            return self._rag_engine
+        try:
+            from embpilot.core.rag import RagEngine
+        except ImportError as exc:
+            raise RuntimeError(
+                "RAG dependencies are not installed; install embpilot[rag]"
+            ) from exc
+        engine = RagEngine(self._config.lancedb_path)
+        await engine.open()
+        self._rag_engine = engine
+        return engine
 
 
 def _device_display_name(interface_type: str, config: dict[str, Any]) -> str:

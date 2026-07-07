@@ -1,5 +1,43 @@
 # Progress
 
+## 2026-07-07 — P2 RAG productization
+
+### Done
+- Added lazy RAG lifecycle methods on `SessionManager`:
+  - `ingest_doc`
+  - `search_docs`
+  - `list_doc_sources`
+  - `delete_doc`
+- Kept RAG optional: core MCP startup still avoids importing `core.rag`; RAG
+  tool calls return an actionable `embpilot[rag]` error when optional deps are
+  absent.
+- Exposed four MCP tools:
+  - `ingest_doc`
+  - `search_docs`
+  - `list_doc_sources`
+  - `delete_doc`
+- Returned RAG search snippets as both JSON text and
+  `structuredContent={"results": ...}` for agent-side citation/reference use.
+- Fixed `RagEngine.list_sources()` so it enumerates all stored rows instead of
+  only inspecting one search result, and made `search()` return parsed metadata.
+- Updated `analyze_crash_log` prompt to call `search_docs` for datasheet, error
+  manual, or troubleshooting KB references before forming the diagnosis.
+- Verified MCP/productization behavior with:
+  `.\.venv\Scripts\python.exe -m pytest tests\integration\test_mcp_app.py -q`
+  Result: 30 passed.
+- Verified full test suite in the slim venv with:
+  `.\.venv\Scripts\python.exe -m pytest tests -q`
+  Result: 105 passed, 1 skipped (`tests/test_rag.py`, optional deps absent).
+
+### Known issues / pitfalls
+- The current verification venv does not include `lancedb`/`fastembed`, so
+  `tests/test_rag.py` remains excluded from broad verification. The MCP layer
+  now tests RAG behavior with a fake engine and tests the missing-extra error
+  path.
+
+### Next good step
+- Run a full `[rag]` environment verification before publishing a PyPI release.
+
 ## 2026-07-07 — P2 long-term log search and metadata
 
 ### Done
@@ -23,8 +61,7 @@
   Result: 61 passed.
 
 ### Next good step
-- Continue P2 RAG productization: expose document ingest/search/list/delete MCP
-  tools and wire crash-log analysis to retrieved references.
+- Continue P2 RAG productization.
 
 ## 2026-07-07 — P1 safety and operation boundaries
 

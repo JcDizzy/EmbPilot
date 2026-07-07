@@ -17,7 +17,8 @@ devices over Serial, Telnet, or SSH.
   and `device://session_info`
 - **Persist sessions** in SQLite (WAL mode) with FTS5-backed historical search
 - **Search and export** recorded sessions (by session id, keyword, or full export)
-- **Local vector search** (fastembed + LanceDB) over Datasheets, Error Code manuals, and KB articles
+- **Local vector search tools** (optional `embpilot[rag]`) over Datasheets,
+  Error Code manuals, and KB articles
 - **Analyse crash logs** and run hardware sanity checks with guided prompts
 
 ## Quick Start

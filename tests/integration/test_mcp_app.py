@@ -21,6 +21,37 @@ def build_config(tmp_path: Path) -> EmbPilotConfig:
     )
 
 
+class _FakeRagEngine:
+    def __init__(self) -> None:
+        self.ingested: list[dict] = []
+        self.deleted: list[str] = []
+
+    async def close(self) -> None:
+        return None
+
+    async def ingest_document(self, text, metadata=None, doc_id=None):
+        doc_id = doc_id or "doc-1"
+        self.ingested.append({"id": doc_id, "text": text, "metadata": metadata or {}})
+        return doc_id
+
+    async def search(self, query, top_k=5, filter_expr=None):
+        return [
+            {
+                "id": "doc-1",
+                "text": "Error 0x42 means DMA underrun.",
+                "score": 0.1,
+                "source": "error_manual",
+                "metadata": {"query": query, "filter": filter_expr},
+            }
+        ][:top_k]
+
+    async def list_sources(self):
+        return ["datasheet", "error_manual"]
+
+    async def delete_document(self, doc_id):
+        self.deleted.append(doc_id)
+
+
 def test_build_resource_catalog_exposes_session_info_resource() -> None:
     from embpilot.mcp_app import build_resource_catalog
 
@@ -305,6 +336,7 @@ def test_render_analyze_crash_log_points_at_live_log() -> None:
     text = render_prompt("analyze_crash_log", {})
 
     assert "device://live_log" in text
+    assert "search_docs" in text
 
 
 def test_render_hardware_sanity_omits_hardcoded_commands() -> None:
@@ -347,6 +379,19 @@ def test_build_tool_catalog_lists_session_query_tools() -> None:
         "search_history_logs",
         "export_session",
         "export_operation_history",
+    } <= names
+
+
+def test_build_tool_catalog_lists_rag_tools() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    names = {tool.name for tool in build_tool_catalog()}
+
+    assert {
+        "ingest_doc",
+        "search_docs",
+        "list_doc_sources",
+        "delete_doc",
     } <= names
 
 
@@ -403,5 +448,110 @@ def test_dispatch_tool_export_unknown_session_returns_error(tmp_path: Path) -> N
         assert result.isError is True
         assert len(result.content) == 1
         assert "error" in result.content[0].text.lower()
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_tool_search_docs_returns_structured_content(tmp_path: Path) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    async def scenario() -> None:
+        manager = SessionManager(build_config(tmp_path))
+        manager._rag_engine = _FakeRagEngine()
+        await manager.start()
+        try:
+            result = await dispatch_tool(
+                manager,
+                "search_docs",
+                {"query": "DMA error 0x42", "source": "error_manual"},
+            )
+        finally:
+            await manager.shutdown()
+
+        assert result.isError is False
+        assert result.structuredContent is not None
+        assert result.structuredContent["results"][0]["source"] == "error_manual"
+        assert "DMA underrun" in result.content[0].text
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_tool_ingest_and_delete_doc_use_confirmations(tmp_path: Path) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    async def scenario() -> None:
+        fake_rag = _FakeRagEngine()
+        manager = SessionManager(build_config(tmp_path))
+        manager._rag_engine = fake_rag
+        await manager.start()
+        try:
+            ingest = await dispatch_tool(
+                manager,
+                "ingest_doc",
+                {
+                    "text": "DMA controller error table",
+                    "source": "datasheet",
+                    "metadata": {"chip": "demo"},
+                    "doc_id": "doc-a",
+                },
+            )
+            denied_delete = await dispatch_tool(
+                manager,
+                "delete_doc",
+                {"doc_id": "doc-a", "confirm": False},
+            )
+            confirmed_delete = await dispatch_tool(
+                manager,
+                "delete_doc",
+                {"doc_id": "doc-a", "confirm": True},
+            )
+        finally:
+            await manager.shutdown()
+
+        assert ingest.isError is False
+        assert ingest.structuredContent == {"doc_id": "doc-a", "source": "datasheet"}
+        assert fake_rag.ingested[0]["metadata"]["source"] == "datasheet"
+        assert denied_delete.isError is True
+        assert confirmed_delete.isError is False
+        assert fake_rag.deleted == ["doc-a"]
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_tool_list_doc_sources_returns_structured_content(tmp_path: Path) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    async def scenario() -> None:
+        manager = SessionManager(build_config(tmp_path))
+        manager._rag_engine = _FakeRagEngine()
+        await manager.start()
+        try:
+            result = await dispatch_tool(manager, "list_doc_sources", {})
+        finally:
+            await manager.shutdown()
+
+        assert result.isError is False
+        assert result.structuredContent == {"sources": ["datasheet", "error_manual"]}
+
+    asyncio.run(scenario())
+
+
+def test_dispatch_tool_rag_without_extra_returns_actionable_error(tmp_path: Path) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    async def scenario() -> None:
+        manager = SessionManager(build_config(tmp_path))
+        await manager.start()
+        try:
+            result = await dispatch_tool(
+                manager,
+                "search_docs",
+                {"query": "anything"},
+            )
+        finally:
+            await manager.shutdown()
+
+        assert result.isError is True
+        assert "embpilot[rag]" in result.content[0].text
 
     asyncio.run(scenario())

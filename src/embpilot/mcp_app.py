@@ -328,6 +328,67 @@ def build_tool_catalog() -> list[Tool]:
                 "additionalProperties": False,
             },
         ),
+        Tool(
+            name="ingest_doc",
+            description=(
+                "Ingest one documentation chunk into the optional local RAG store. "
+                "Requires embpilot[rag]."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "minLength": 1},
+                    "source": {"type": "string", "minLength": 1, "default": "unknown"},
+                    "metadata": {"type": "object"},
+                    "doc_id": {"type": "string", "minLength": 1},
+                },
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="search_docs",
+            description=(
+                "Search the optional local RAG store and return reference snippets "
+                "as text plus structuredContent."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "minLength": 1},
+                    "top_k": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+                    "source": {"type": "string", "minLength": 1},
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="list_doc_sources",
+            description="List distinct source labels in the optional local RAG store.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="delete_doc",
+            description="Delete one documentation chunk from the optional local RAG store.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {"type": "string", "minLength": 1},
+                    "confirm": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Must be true to delete a stored document chunk.",
+                    },
+                },
+                "required": ["doc_id", "confirm"],
+                "additionalProperties": False,
+            },
+        ),
     ]
 
 
@@ -335,19 +396,21 @@ async def dispatch_tool(
     manager: SessionManager, name: str, arguments: dict[str, Any]
 ) -> CallToolResult:
     try:
-        content = await _execute_tool(manager, name, arguments)
+        result = await _execute_tool(manager, name, arguments)
     except Exception as exc:  # noqa: BLE001 — tool execution errors stay in result space
         logger.exception("Tool %s failed", name)
         return CallToolResult(
             content=[TextContent(type="text", text=f"Error: {exc}")],
             isError=True,
         )
-    return CallToolResult(content=content, isError=False)
+    if isinstance(result, CallToolResult):
+        return result
+    return CallToolResult(content=result, isError=False)
 
 
 async def _execute_tool(
     manager: SessionManager, name: str, arguments: dict[str, Any]
-) -> list[TextContent]:
+) -> list[TextContent] | CallToolResult:
     if name == "connect_device":
         session_id = await manager.connect_device(
             interface_type=arguments["interface_type"],
@@ -410,6 +473,62 @@ async def _execute_tool(
             offset=arguments.get("offset", 0),
         )
         return [TextContent(type="text", text=text)]
+    if name == "ingest_doc":
+        payload = await manager.ingest_doc(
+            text=arguments["text"],
+            source=arguments.get("source", "unknown"),
+            metadata=arguments.get("metadata"),
+            doc_id=arguments.get("doc_id"),
+        )
+        return CallToolResult(
+            content=[
+                TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))
+            ],
+            structuredContent=payload,
+            isError=False,
+        )
+    if name == "search_docs":
+        results = await manager.search_docs(
+            query=arguments["query"],
+            top_k=arguments.get("top_k", 5),
+            source=arguments.get("source"),
+        )
+        payload = {"results": results}
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps(payload, ensure_ascii=False, indent=2),
+                )
+            ],
+            structuredContent=payload,
+            isError=False,
+        )
+    if name == "list_doc_sources":
+        sources = await manager.list_doc_sources()
+        payload = {"sources": sources}
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps(payload, ensure_ascii=False, indent=2),
+                )
+            ],
+            structuredContent=payload,
+            isError=False,
+        )
+    if name == "delete_doc":
+        payload = await manager.delete_doc(
+            doc_id=arguments["doc_id"],
+            confirm=arguments["confirm"],
+        )
+        return CallToolResult(
+            content=[
+                TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))
+            ],
+            structuredContent=payload,
+            isError=False,
+        )
     raise ValueError(f"Unknown tool: {name}")
 
 
@@ -449,8 +568,11 @@ def render_prompt(name: str, arguments: dict[str, Any]) -> str:
         body = (
             "You are an embedded debugging assistant. Read the live device log snapshot "
             "via the device://live_log resource and look for crash "
-            "signatures, panics, hangs, or unexpected reboots. Form a root-cause "
-            "hypothesis and propose the next diagnostic commands to send via send_command."
+            "signatures, panics, hangs, or unexpected reboots. Use search_docs to "
+            "retrieve relevant datasheet, error manual, or troubleshooting KB "
+            "snippets when available, and cite those snippets in the analysis. "
+            "Form a root-cause hypothesis and propose the next diagnostic commands "
+            "to send via send_command."
         )
         if context:
             body += f"\n\nAdditional context:\n{context}"

@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytest.importorskip("lancedb")
+
 from embpilot.core.rag import RagEngine, _DEFAULT_DIM
 
 
