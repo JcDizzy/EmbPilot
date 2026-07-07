@@ -239,6 +239,107 @@ def test_send_command_rejects_unknown_line_ending(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_send_command_requires_confirmation_for_dangerous_command(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            with pytest.raises(PermissionError, match="Dangerous command"):
+                await manager.send_command("reboot\n")
+
+            assert fake.writes == []
+            assert len(manager._expect._windows) == 0
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_send_command_allows_confirmed_dangerous_command(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+            framing_timeout_ms=5,
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            task = asyncio.create_task(
+                manager.send_command(
+                    "reboot",
+                    expect_regex=r"rebooting",
+                    timeout_ms=500,
+                    line_ending="lf",
+                    confirm_dangerous_command=True,
+                )
+            )
+            await asyncio.sleep(0)
+            fake.emit_line("rebooting")
+
+            await task
+
+            assert fake.writes == [b"reboot\n"]
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_send_command_rejects_timeout_above_configured_cap(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+            command_timeout_max_ms=100,
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            with pytest.raises(ValueError, match="timeout_ms exceeds"):
+                await manager.send_command("status", timeout_ms=101)
+
+            assert fake.writes == []
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
 def test_disconnect_and_shutdown_do_not_hang_when_reader_stays_open(tmp_path, monkeypatch):
     async def scenario() -> None:
         fake = _NonClosingDevice()
@@ -501,6 +602,38 @@ def test_delete_session_refuses_active_session(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_delete_session_requires_confirmation_for_historical_session(tmp_path):
+    async def scenario() -> None:
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            session_path = tmp_path / "sessions" / "hist-delete.db"
+            session_path.parent.mkdir(parents=True, exist_ok=True)
+            session_path.touch()
+            await manager._main_db.register_session(
+                "hist-delete", "board-x", "serial", str(session_path)
+            )
+
+            with pytest.raises(PermissionError, match="confirm=true"):
+                await manager.delete_session("hist-delete")
+
+            assert session_path.exists()
+
+            await manager.delete_session("hist-delete", confirm=True)
+
+            assert not session_path.exists()
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
 def test_search_and_export_work_on_historical_session(tmp_path, monkeypatch):
     from datetime import datetime, timezone
 
@@ -550,6 +683,66 @@ def test_search_and_export_work_on_historical_session(tmp_path, monkeypatch):
             as_json = await manager.export_session("hist-1", fmt="json")
             assert "boom" in as_json
             assert "boot ok" in as_json
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_search_and_export_limits_are_capped(tmp_path):
+    async def scenario() -> None:
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+            search_limit_max=2,
+            export_limit_max=2,
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            with pytest.raises(ValueError, match="limit exceeds"):
+                await manager.search_session_logs("missing", "x", limit=3)
+            with pytest.raises(ValueError, match="limit exceeds"):
+                await manager.export_session("missing", limit=3)
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_export_operation_history_returns_redacted_json(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device(
+                "ssh",
+                {
+                    "host": "192.0.2.10",
+                    "password": "secret",
+                    "key_file": "C:/Users/example/.ssh/id_rsa",
+                },
+            )
+
+            exported = await manager.export_operation_history()
+
+            assert "secret" not in exported
+            assert "id_rsa" not in exported
+            assert "***REDACTED***" in exported
         finally:
             await manager.shutdown()
 

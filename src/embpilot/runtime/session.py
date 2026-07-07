@@ -14,6 +14,7 @@ from embpilot.drivers.base import BaseDevice
 from embpilot.runtime.expect import ExpectManager
 from embpilot.runtime.models import LogLine, RingBuffer, SessionInfo
 from embpilot.runtime.pipeline import DbSink, LogProducer, RingBufferSink, SessionDispatcher
+from embpilot.runtime.safety import is_dangerous_command
 
 
 def build_device(interface_type: str, config: dict[str, Any]) -> BaseDevice:
@@ -71,6 +72,7 @@ class SessionManager:
         await self._main_db.cleanup_expired_sessions(
             max_days=self._config.retention_days,
             max_gb=self._config.retention_max_gb,
+            allowed_dir=self._config.session_data_dir,
         )
 
     async def shutdown(self) -> None:
@@ -132,7 +134,12 @@ class SessionManager:
         await self._main_db.insert_operation(
             actor="System",
             action_type="connect",
-            detail={"session_id": session_id, "device": device_name, "interface": interface_type},
+            detail={
+                "session_id": session_id,
+                "device": device_name,
+                "interface": interface_type,
+                "config": config,
+            },
             session_id=session_id,
         )
         return session_id
@@ -143,10 +150,21 @@ class SessionManager:
         expect_regex: str | None = None,
         timeout_ms: int = 5000,
         line_ending: str = "as-is",
+        confirm_dangerous_command: bool = False,
     ) -> str:
         async with self._command_lock:
             if self._device is None:
                 raise RuntimeError("No active device connection")
+            if timeout_ms > self._config.command_timeout_max_ms:
+                raise ValueError(
+                    "timeout_ms exceeds configured maximum "
+                    f"({self._config.command_timeout_max_ms})"
+                )
+            dangerous = is_dangerous_command(command)
+            if dangerous and not confirm_dangerous_command:
+                raise PermissionError(
+                    "Dangerous command requires confirm_dangerous_command=true"
+                )
 
             command_bytes = _encode_command(command, line_ending)
             window = self._expect.open_window(expect_regex=expect_regex, timeout_ms=timeout_ms)
@@ -166,6 +184,7 @@ class SessionManager:
                         "command": command,
                         "expect": expect_regex,
                         "line_ending": line_ending,
+                        "dangerous": dangerous,
                     },
                     session_id=self._session_info.session_id,
                 )
@@ -275,12 +294,23 @@ class SessionManager:
     async def list_sessions(self) -> list[dict[str, Any]]:
         return await self._main_db.list_sessions()
 
-    async def delete_session(self, session_id: str) -> None:
+    async def delete_session(self, session_id: str, confirm: bool = False) -> None:
         if self._session_info is not None and self._session_info.session_id == session_id:
             raise RuntimeError(
                 "Cannot delete the active session; disconnect_device first"
             )
-        await self._main_db.delete_session(session_id)
+        if not confirm:
+            raise PermissionError("delete_session requires confirm=true")
+        await self._main_db.delete_session(
+            session_id,
+            allowed_dir=self._config.session_data_dir,
+        )
+        await self._main_db.insert_operation(
+            actor="AI",
+            action_type="delete_session",
+            detail={"session_id": session_id},
+            session_id=session_id,
+        )
 
     async def _flush_active_sink(self, session_id: str) -> None:
         if (
@@ -298,6 +328,10 @@ class SessionManager:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
+        if limit > self._config.search_limit_max:
+            raise ValueError(
+                f"limit exceeds configured maximum ({self._config.search_limit_max})"
+            )
         await self._flush_active_sink(session_id)
         async with self._open_session_db(session_id) as db:
             return await db.search_logs(keyword, time_window_seconds, limit, offset)
@@ -309,6 +343,10 @@ class SessionManager:
         limit: int = 2000,
         offset: int = 0,
     ) -> str:
+        if limit > self._config.export_limit_max:
+            raise ValueError(
+                f"limit exceeds configured maximum ({self._config.export_limit_max})"
+            )
         await self._flush_active_sink(session_id)
         async with self._open_session_db(session_id) as db:
             rows = await db.fetch_logs(limit=limit, offset=offset)
@@ -321,6 +359,24 @@ class SessionManager:
         raise ValueError(
             f"Unsupported export format: {fmt!r} (use 'text' or 'json')"
         )
+
+    async def export_operation_history(
+        self,
+        session_id: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> str:
+        if limit > self._config.audit_export_limit_max:
+            raise ValueError(
+                "limit exceeds configured maximum "
+                f"({self._config.audit_export_limit_max})"
+            )
+        rows = await self._main_db.fetch_operation_history(
+            session_id=session_id,
+            limit=limit,
+            offset=offset,
+        )
+        return json.dumps(rows, ensure_ascii=False, indent=2)
 
     def _resolve_session_path(self, session_id: str, device_name: str) -> Path:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

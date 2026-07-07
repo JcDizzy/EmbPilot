@@ -13,9 +13,10 @@
 - Async producer-consumer pipeline (LogProducer, ExpectConsumer, DbConsumer → SessionDatabase)
 - Auto-flush DbConsumer with periodic timer (50ms interval, batch_size=200)
 - Hardware drivers: SerialDevice (pyserial-asyncio), TelnetDevice (telnetlib3), SshDevice (asyncssh)
-- MCP Server integration with 8 tools, 3 resources, 2 prompts:
+- MCP Server integration with 9 tools, 3 resources, 2 prompts:
   - Tools: connect_device, send_command (with expect_regex), reset_target (reboot only),
-    disconnect_device, list_sessions, delete_session, search_history_logs, export_session
+    disconnect_device, list_sessions, delete_session, search_history_logs, export_session,
+    export_operation_history
   - Resources: device://live_log (snapshot), device://session_info, device://analytics
   - Prompts: analyze_crash_log, hardware_sanity_check
 - Session lifecycle management (auto-disconnect on reconnect, auto-cleanup on startup)
@@ -62,9 +63,11 @@
 - DbSink periodic flush: DbSink now flushes its batch on a configurable interval (default 1.0s), not only when batch_size fills or on close. Low-rate devices (e.g. a sensor emitting a few lines/sec) now persist to SQLite within ~1s instead of waiting for 200 rows.
 - active-session query flush: SessionManager now holds the DbSink reference and flushes it before search_session_logs/export_session on the active session, so queries return the most recent device output immediately (no waiting for the periodic flush). Fixes the active-session search/export staleness found during real-device testing.
 [2026-07-02]
-- optional RAG dependencies: moved fastembed and lancedb out of required dependencies into the `rag` extra (`pip install embpilot[rag]`). The core MCP server (Serial/Telnet/SSH, all 8 tools / 3 resources / 2 prompts) no longer pulls the heavy RAG stack — a clean `uvx embpilot` installs ~41 packages instead of 75.
+- optional RAG dependencies: moved fastembed and lancedb out of required dependencies into the `rag` extra (`pip install embpilot[rag]`). The core MCP server (Serial/Telnet/SSH, current MCP tools/resources/prompts) no longer pulls the heavy RAG stack — a clean `uvx embpilot` installs ~41 packages instead of 75.
 - doctor diagnostics: added `embpilot doctor` (src/embpilot/doctor.py) and a `doctor` CLI subcommand reporting version/Python/platform, core and optional-RAG dependency status, drivers, sqlite, writable data dir, and detected serial ports; exits 0 if all required checks pass else 1.
 [2026-07-07]
 - P0 transport contract: standardized runtime drivers around a bytes contract while adapting Telnet/SSH text-mode streams internally, removed the fixed SSH `bash` shell command, added `send_command` line-ending strategies (`as-is`/`none`/`lf`/`crlf`/`cr`) through runtime and MCP schema, and added fake Telnet/SSH server integration coverage plus line-ending regressions.
 [2026-07-07]
 - P1 MCP contract: tightened tool JSON Schemas, returned tool execution failures as `CallToolResult(isError=True)`, converted unknown tool and invalid arguments into JSON-RPC protocol errors, converted unknown resources into `Resource not found` protocol errors using `-32602`, and removed the live-log subscribe handler until update notifications are implemented.
+[2026-07-07]
+- P1 safety boundaries: added dangerous-command confirmation, delete-session confirmation, managed-directory path checks before deleting session DB files, command/search/export/audit caps, MCP tool rate limiting, sensitive operation-history redaction, and a new `export_operation_history` MCP tool for redacted audit export.

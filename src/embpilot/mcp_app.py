@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
+from collections import deque
 from typing import Any, Optional
 
 import jsonschema
@@ -37,6 +39,10 @@ from embpilot.runtime.session import SessionManager
 logger = logging.getLogger(__name__)
 
 _active_manager: Optional[SessionManager] = None
+_DEFAULT_COMMAND_TIMEOUT_MAX_MS = 60_000
+_DEFAULT_SEARCH_LIMIT_MAX = 1_000
+_DEFAULT_EXPORT_LIMIT_MAX = 10_000
+_DEFAULT_AUDIT_EXPORT_LIMIT_MAX = 5_000
 
 
 def get_active_session_manager() -> Optional[SessionManager]:
@@ -165,6 +171,7 @@ def build_tool_catalog() -> list[Tool]:
                     "timeout_ms": {
                         "type": "integer",
                         "minimum": 1,
+                        "maximum": _DEFAULT_COMMAND_TIMEOUT_MAX_MS,
                         "default": 5000,
                     },
                     "line_ending": {
@@ -174,6 +181,14 @@ def build_tool_catalog() -> list[Tool]:
                         "description": (
                             "How EmbPilot should terminate the command before "
                             "writing it to the device."
+                        ),
+                    },
+                    "confirm_dangerous_command": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Must be true to send commands matching EmbPilot's "
+                            "dangerous-command patterns."
                         ),
                     },
                 },
@@ -227,8 +242,13 @@ def build_tool_catalog() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "session_id": {"type": "string", "minLength": 1},
+                    "confirm": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Must be true to delete a recorded session.",
+                    },
                 },
-                "required": ["session_id"],
+                "required": ["session_id", "confirm"],
                 "additionalProperties": False,
             },
         ),
@@ -248,7 +268,12 @@ def build_tool_catalog() -> list[Tool]:
                         "minimum": 1,
                         "description": "Optional: restrict to the last N seconds.",
                     },
-                    "limit": {"type": "integer", "minimum": 1, "default": 50},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _DEFAULT_SEARCH_LIMIT_MAX,
+                        "default": 50,
+                    },
                     "offset": {"type": "integer", "minimum": 0, "default": 0},
                 },
                 "required": ["session_id", "keyword"],
@@ -270,10 +295,36 @@ def build_tool_catalog() -> list[Tool]:
                         "enum": ["text", "json"],
                         "default": "text",
                     },
-                    "limit": {"type": "integer", "minimum": 1, "default": 2000},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _DEFAULT_EXPORT_LIMIT_MAX,
+                        "default": 2000,
+                    },
                     "offset": {"type": "integer", "minimum": 0, "default": 0},
                 },
                 "required": ["session_id"],
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="export_operation_history",
+            description=(
+                "Export redacted operation audit history as JSON, optionally "
+                "filtered by session id."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "minLength": 1},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": _DEFAULT_AUDIT_EXPORT_LIMIT_MAX,
+                        "default": 200,
+                    },
+                    "offset": {"type": "integer", "minimum": 0, "default": 0},
+                },
                 "additionalProperties": False,
             },
         ),
@@ -309,6 +360,9 @@ async def _execute_tool(
             expect_regex=arguments.get("expect_regex"),
             timeout_ms=arguments.get("timeout_ms", 5000),
             line_ending=arguments.get("line_ending", "as-is"),
+            confirm_dangerous_command=arguments.get(
+                "confirm_dangerous_command", False
+            ),
         )
         return [TextContent(type="text", text=output)]
     if name == "reset_target":
@@ -322,7 +376,10 @@ async def _execute_tool(
         payload = json.dumps(sessions, ensure_ascii=False, indent=2)
         return [TextContent(type="text", text=payload)]
     if name == "delete_session":
-        await manager.delete_session(session_id=arguments["session_id"])
+        await manager.delete_session(
+            session_id=arguments["session_id"],
+            confirm=arguments["confirm"],
+        )
         return [
             TextContent(
                 type="text", text=f"Deleted session {arguments['session_id']!r}."
@@ -343,6 +400,13 @@ async def _execute_tool(
             session_id=arguments["session_id"],
             fmt=arguments.get("format", "text"),
             limit=arguments.get("limit", 2000),
+            offset=arguments.get("offset", 0),
+        )
+        return [TextContent(type="text", text=text)]
+    if name == "export_operation_history":
+        text = await manager.export_operation_history(
+            session_id=arguments.get("session_id"),
+            limit=arguments.get("limit", 200),
             offset=arguments.get("offset", 0),
         )
         return [TextContent(type="text", text=text)]
@@ -421,8 +485,35 @@ def _tool_by_name(name: str) -> Tool | None:
     return next((tool for tool in build_tool_catalog() if tool.name == name), None)
 
 
+class _RateLimiter:
+    def __init__(self, max_calls_per_minute: int) -> None:
+        self._max_calls = max_calls_per_minute
+        self._timestamps: deque[float] = deque()
+
+    def allow(self, now: float | None = None) -> bool:
+        if self._max_calls <= 0:
+            return True
+        now = now if now is not None else time.monotonic()
+        cutoff = now - 60.0
+        while self._timestamps and self._timestamps[0] <= cutoff:
+            self._timestamps.popleft()
+        if len(self._timestamps) >= self._max_calls:
+            return False
+        self._timestamps.append(now)
+        return True
+
+
+def _tool_error_result(message: str) -> ServerResult:
+    return ServerResult(
+        CallToolResult(
+            content=[TextContent(type="text", text=message)],
+            isError=True,
+        )
+    )
+
+
 async def _handle_call_tool_request(
-    manager: SessionManager, request: CallToolRequest
+    manager: SessionManager, request: CallToolRequest, rate_limiter: _RateLimiter
 ) -> ServerResult:
     name = request.params.name
     arguments = request.params.arguments or {}
@@ -437,6 +528,8 @@ async def _handle_call_tool_request(
             f"Invalid arguments for tool {name}: {exc.message}",
             {"tool": name},
         ) from exc
+    if not rate_limiter.allow():
+        return _tool_error_result("Rate limit exceeded for MCP tool calls")
 
     return ServerResult(await dispatch_tool(manager, name, arguments))
 
@@ -444,6 +537,7 @@ async def _handle_call_tool_request(
 def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
     manager = SessionManager(config)
     app = Server("embpilot", version=__version__)
+    rate_limiter = _RateLimiter(config.tool_rate_limit_per_minute)
 
     @app.list_resources()
     async def list_resources() -> list[Resource]:
@@ -484,7 +578,7 @@ def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
         return build_tool_catalog()
 
     async def call_tool_handler(request: CallToolRequest) -> ServerResult:
-        return await _handle_call_tool_request(manager, request)
+        return await _handle_call_tool_request(manager, request, rate_limiter)
 
     app.request_handlers[CallToolRequest] = call_tool_handler
 

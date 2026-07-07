@@ -11,6 +11,8 @@ devices over Serial, Telnet, or SSH.
 - **Connect** to devices via Serial UART, Telnet, or SSH
 - **Send commands** and capture output with regular-expression interception (Expect)
 - **Reset targets** by issuing a reboot to the connected device
+- **Guard risky operations** with dangerous-command confirmation, delete
+  confirmation, redacted audit history, rate limiting, and bounded exports
 - **Expose active-session resources** through MCP, including `device://live_log`
   and `device://session_info`
 - **Persist sessions** in SQLite (WAL mode) for RAG-backed historical search

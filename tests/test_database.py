@@ -129,6 +129,56 @@ async def test_main_database_get_session_db_path():
 
 
 @pytest.mark.asyncio
+async def test_operation_history_redacts_sensitive_detail():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        main = MainDatabase(d / "embpilot_main.db")
+        await main.open()
+
+        await main.insert_operation(
+            "AI",
+            "connect",
+            {
+                "config": {
+                    "host": "192.0.2.10",
+                    "password": "secret",
+                    "key_file": "C:/Users/example/.ssh/id_rsa",
+                }
+            },
+            session_id="sess-redact",
+        )
+
+        rows = await main.fetch_operation_history(session_id="sess-redact")
+
+        assert len(rows) == 1
+        assert "secret" not in rows[0]["detail"]
+        assert "id_rsa" not in rows[0]["detail"]
+        assert "***REDACTED***" in rows[0]["detail"]
+
+        await main.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_session_refuses_path_outside_allowed_directory():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        session_dir = d / "sessions"
+        session_dir.mkdir()
+        outside_path = d / "outside.db"
+        outside_path.touch()
+        main = MainDatabase(d / "embpilot_main.db")
+        await main.open()
+        await main.register_session("outside", "board", "serial", str(outside_path))
+
+        with pytest.raises(ValueError, match="outside managed session directory"):
+            await main.delete_session("outside", allowed_dir=session_dir)
+
+        assert outside_path.exists()
+
+        await main.close()
+
+
+@pytest.mark.asyncio
 async def test_session_database_fetch_logs_is_ordered():
     """fetch_logs returns rows in insertion order with limit/offset paging."""
     with tempfile.TemporaryDirectory() as tmp:

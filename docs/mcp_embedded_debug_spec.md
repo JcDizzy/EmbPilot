@@ -11,12 +11,13 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 ### 1. Tools (AI 可调用的主动操作)
 * **`connect_device(interface_type, config)`**：建立硬件连接。支持 `serial`（参数：端口号、波特率）及 `telnet/ssh`（参数：IP、端口、用户名/密码）。
 * **`disconnect_device()`**：主动断开连接，释放系统串口或网络句柄。
-* **`send_command(command, expect_regex, timeout_ms, line_ending)`**：向设备发送指令（如 `help`, `ifconfig`）。支持传入正则表达式 `expect_regex`；返回值应是该条命令窗口内采集到的输出，在本地匹配成功后立即截断返回，若未匹配则在超时点返回已收集窗口内容，以优化响应时间并避免把无关刷屏日志混进结果。`line_ending` 支持 `as-is`、`none`、`lf`、`crlf`、`cr`，用于适配不同 bootloader、AT shell、Linux shell 对命令结束符的要求。
+* **`send_command(command, expect_regex, timeout_ms, line_ending, confirm_dangerous_command)`**：向设备发送指令（如 `help`, `ifconfig`）。支持传入正则表达式 `expect_regex`；返回值应是该条命令窗口内采集到的输出，在本地匹配成功后立即截断返回，若未匹配则在超时点返回已收集窗口内容，以优化响应时间并避免把无关刷屏日志混进结果。`line_ending` 支持 `as-is`、`none`、`lf`、`crlf`、`cr`，用于适配不同 bootloader、AT shell、Linux shell 对命令结束符的要求。匹配危险命令模式时必须显式传入 `confirm_dangerous_command=true`。
 * **`reset_target(method)`**：复位目标板。当前仅支持 `reboot`（向设备发送 reboot 文本命令）；DTR/RTS 引脚电平控制在 runtime 真正支持前不纳入公共接口，避免发布无法兑现的复位能力。
 * **`list_sessions()`**：列出所有已记录的会话（按时间倒序），含 `session_id`、接口、设备名、起止时间、状态等。
-* **`delete_session(session_id)`**：删除某个历史会话的数据库文件与索引记录。活动会话不可删除（须先 `disconnect_device`）。
+* **`delete_session(session_id, confirm)`**：删除某个历史会话的数据库文件与索引记录。活动会话不可删除（须先 `disconnect_device`），且必须传入 `confirm=true`；删除路径必须位于 EmbPilot 托管的 session 数据目录内。
 * **`search_history_logs(session_id, keyword, ...)`**：在指定会话（活动或历史）的日志中按关键字搜索，可选 `time_window_seconds`（仅对活动会话有意义）。结果为 JSON。
 * **`export_session(session_id, format, limit, ...)`**：导出指定会话的日志，`format` 支持 `text`/`json`，输出受 `limit`（默认 2000）封顶。
+* **`export_operation_history(session_id, limit, ...)`**：导出脱敏后的操作审计记录，支持按 session 过滤，敏感连接参数（如 password、key_file、token）不会原样返回。
 
 ### 2. Resources (AI 可读取的数据源)
 * **`device://live_log`**：活动会话最近日志快照。当前实现不注册 `resources/subscribe`，避免在尚未发送 `notifications/resources/updated` 的情况下宣称支持动态订阅。
@@ -54,6 +55,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **内存容量保护**：内存中的即时查看历史采用固定长度环形缓冲区（`collections.deque(maxlen=2000)`），旧数据自动溢出，海量历史完全交由本地数据库承载。
 * **诚实资源语义**：资源只暴露 runtime 当前能稳定提供的数据。`device://session_info` 描述当前会话事实，而不是伪造一个跨设备通用的 `sysinfo` 采集承诺。
 * **MCP 错误边界**：unknown tool、参数 schema 不合法、unknown resource URI 属于协议错误，返回标准 JSON-RPC error；工具运行期间的业务失败（如未连接设备、历史 session 不存在）保留在 tool result 中并标记 `isError: true`。
+* **操作安全边界**：MCP tool 调用有滑动窗口 rate limit；`send_command` 超时、搜索结果、日志导出和审计导出都有配置上限；危险命令和删除历史会话必须显式确认。
 
 ---
 

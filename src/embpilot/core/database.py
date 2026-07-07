@@ -20,6 +20,7 @@ from typing import Any, Optional
 import aiosqlite
 
 from embpilot.runtime.models import LogLine
+from embpilot.runtime.safety import ensure_path_within, redact_sensitive
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,9 @@ class MainDatabase:
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
-    async def delete_session(self, session_id: str) -> None:
+    async def delete_session(
+        self, session_id: str, allowed_dir: Path | None = None
+    ) -> None:
         """Physically delete the session db file and remove the index entry."""
         if self._conn is None:
             return
@@ -127,6 +130,8 @@ class MainDatabase:
         row = await cursor.fetchone()
         if row:
             p = Path(row["db_path"])
+            if allowed_dir is not None:
+                p = ensure_path_within(p, allowed_dir)
             if p.exists():
                 p.unlink()
                 logger.info("Deleted session file %s", p)
@@ -156,6 +161,7 @@ class MainDatabase:
     ) -> None:
         if self._conn is None:
             return
+        detail = redact_sensitive(detail)
         await self._conn.execute(
             "INSERT INTO operation_history (timestamp, session_id, actor, action_type, detail) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -163,12 +169,35 @@ class MainDatabase:
         )
         await self._conn.commit()
 
+    async def fetch_operation_history(
+        self,
+        session_id: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        if self._conn is None:
+            return []
+        query = (
+            "SELECT timestamp, session_id, actor, action_type, detail "
+            "FROM operation_history"
+        )
+        params: list[Any] = []
+        if session_id is not None:
+            query += " WHERE session_id = ?"
+            params.append(session_id)
+        query += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        cursor = await self._conn.execute(query, params)
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     # ── Cleanup ──────────────────────────────────────────────────────
 
     async def cleanup_expired_sessions(
         self,
         max_days: int = 30,
         max_gb: int = 5,
+        allowed_dir: Path | None = None,
     ) -> None:
         """Auto-delete sessions exceeding retention thresholds.
 
@@ -187,6 +216,8 @@ class MainDatabase:
         old_sessions = await cursor.fetchall()
         for row in old_sessions:
             p = Path(row["db_path"])
+            if allowed_dir is not None:
+                p = ensure_path_within(p, allowed_dir)
             if p.exists():
                 p.unlink()
             await self._conn.execute(
@@ -211,6 +242,8 @@ class MainDatabase:
                 if total_size <= max_bytes:
                     break
                 p = Path(row["db_path"])
+                if allowed_dir is not None:
+                    p = ensure_path_within(p, allowed_dir)
                 if p.exists():
                     total_size -= row["file_size"]
                     p.unlink()

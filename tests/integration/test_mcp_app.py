@@ -127,6 +127,7 @@ def test_send_command_schema_exposes_line_ending_strategy() -> None:
 
     assert line_ending_schema["default"] == "as-is"
     assert line_ending_schema["enum"] == ["as-is", "none", "lf", "crlf", "cr"]
+    assert tool.inputSchema["properties"]["confirm_dangerous_command"]["default"] is False
 
 
 def test_tool_schemas_reject_extra_properties() -> None:
@@ -144,6 +145,15 @@ def test_reset_target_schema_excludes_dtr_and_rts() -> None:
     method_schema = tool.inputSchema["properties"]["method"]
 
     assert method_schema.get("enum") == ["reboot"]
+
+
+def test_delete_session_schema_requires_confirmation() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    tool = next(t for t in build_tool_catalog() if t.name == "delete_session")
+
+    assert "confirm" in tool.inputSchema["required"]
+    assert tool.inputSchema["properties"]["confirm"]["default"] is False
 
 
 def test_call_tool_handler_unknown_tool_raises_protocol_error(tmp_path: Path) -> None:
@@ -190,6 +200,33 @@ def test_call_tool_handler_invalid_arguments_raises_protocol_error(tmp_path: Pat
 
         assert exc_info.value.error.code == types.INVALID_PARAMS
         assert "Invalid arguments" in exc_info.value.error.message
+
+    asyncio.run(scenario())
+
+
+def test_call_tool_handler_rate_limit_returns_tool_error(tmp_path: Path) -> None:
+    from embpilot.mcp_app import create_mcp_app
+
+    async def scenario() -> None:
+        config = build_config(tmp_path)
+        config.tool_rate_limit_per_minute = 1
+        app, manager = create_mcp_app(config)
+        await manager.start()
+        try:
+            request = types.CallToolRequest(
+                params=types.CallToolRequestParams(
+                    name="list_sessions",
+                    arguments={},
+                )
+            )
+            first = await app.request_handlers[types.CallToolRequest](request)
+            second = await app.request_handlers[types.CallToolRequest](request)
+        finally:
+            await manager.shutdown()
+
+        assert first.root.isError is False
+        assert second.root.isError is True
+        assert "rate limit" in second.root.content[0].text.lower()
 
     asyncio.run(scenario())
 
@@ -309,6 +346,7 @@ def test_build_tool_catalog_lists_session_query_tools() -> None:
         "delete_session",
         "search_history_logs",
         "export_session",
+        "export_operation_history",
     } <= names
 
 

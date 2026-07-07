@@ -1,5 +1,38 @@
 # Progress
 
+## 2026-07-07 — P1 safety and operation boundaries
+
+### Done
+- Added `runtime/safety.py` with shared dangerous-command detection,
+  sensitive-field redaction, and managed-directory path validation.
+- Added safety limits to `EmbPilotConfig`:
+  - `command_timeout_max_ms`
+  - `search_limit_max`
+  - `export_limit_max`
+  - `audit_export_limit_max`
+  - `tool_rate_limit_per_minute`
+- Hardened runtime operations:
+  - `send_command` rejects dangerous command patterns unless
+    `confirm_dangerous_command=True`
+  - `send_command` enforces the configured timeout cap
+  - `delete_session` refuses historical deletion unless `confirm=True`
+  - `delete_session` and retention cleanup validate session DB paths before
+    unlinking files
+  - search/export/audit export enforce configured result caps
+- Extended operation history:
+  - database writes now recursively redact sensitive keys such as `password`,
+    `token`, `secret`, and `key_file`
+  - connect audit records now include the supplied config after redaction
+  - added `export_operation_history` runtime/MCP tool for redacted audit export
+- Added MCP rate limiting in the custom `CallToolRequest` handler.
+- Verified focused safety coverage with:
+  `.\.venv\Scripts\python.exe -m pytest tests\test_database.py tests\runtime\test_session.py tests\integration\test_mcp_app.py -q`
+  Result: 58 passed.
+
+### Next good step
+- Continue P2 long-term logging: FTS5 search, richer log metadata, configurable
+  analytics patterns, and real retention size accounting.
+
 ## 2026-07-07 — P1 MCP contract hardening
 
 ### Done
@@ -25,9 +58,7 @@
   Result: 23 passed.
 
 ### Next good step
-- Continue P1 safety/operation boundaries: dangerous command confirmation,
-  audit export, rate limits, timeout/export caps, DB deletion path checks, and
-  sensitive config redaction.
+- Continue P1 safety/operation boundaries.
 
 ## 2026-07-07 — P0 real transport contract hardening
 
@@ -113,7 +144,7 @@
   empty for a "last N seconds" window. Documented in the spec.
 
 ### Next good step
-- The MCP surface is now complete (8 tools / 3 resources / 2 prompts). Next:
+- At this point the MCP surface had 8 tools / 3 resources / 2 prompts. Next:
   pursue packaging/release (0.1.0), or push the `feat/runtime-rearchitecture`
   branch and open a PR.
 

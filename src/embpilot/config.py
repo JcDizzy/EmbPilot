@@ -64,6 +64,13 @@ class EmbPilotConfig:
     serial_timeout_default: float = 5.0
     network_timeout_default: float = 10.0
 
+    # ── Safety limits ───────────────────────────────────────────────
+    command_timeout_max_ms: int = 60_000
+    search_limit_max: int = 1_000
+    export_limit_max: int = 10_000
+    audit_export_limit_max: int = 5_000
+    tool_rate_limit_per_minute: int = 120
+
     def __post_init__(self) -> None:
         if self.main_db_path is None:
             self.main_db_path = self.data_dir / "embpilot_main.db"
