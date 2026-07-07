@@ -4,13 +4,17 @@ SSH device driver — wraps asyncssh.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Optional
 
 import asyncssh
 
-from embpilot.drivers.base import BaseDevice
+from embpilot.drivers.base import (
+    BaseDevice,
+    ByteReader,
+    TextReaderAsBytes,
+    write_bytes_to_text_stream,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +59,7 @@ class SshDevice(BaseDevice):
 
         self._conn: Optional[asyncssh.SSHClientConnection] = None
         self._chan: Optional[asyncssh.SSHClientProcess] = None
+        self._byte_reader: Optional[ByteReader] = None
 
     async def connect(self) -> None:
         logger.info("Connecting via SSH to %s@%s:%d", self._username, self._host, self._port)
@@ -71,10 +76,8 @@ class SshDevice(BaseDevice):
             connect_kwargs["client_keys"] = [self._key_file]
 
         self._conn = await asyncssh.connect(**connect_kwargs, **self._extra_kwargs)
-        self._chan = await self._conn.create_process(
-            "bash",
-            term_type="xterm",
-        )
+        self._chan = await self._conn.create_process()
+        self._byte_reader = TextReaderAsBytes(self._chan.stdout)
         self._connected = True
         logger.info("SSH session to %s@%s:%d established", self._username, self._host, self._port)
 
@@ -83,6 +86,7 @@ class SshDevice(BaseDevice):
             self._chan.close()
             await self._chan.wait_closed()
             self._chan = None
+            self._byte_reader = None
         if self._conn is not None:
             self._conn.close()
             await self._conn.wait_closed()
@@ -93,10 +97,10 @@ class SshDevice(BaseDevice):
     async def write(self, data: bytes) -> None:
         if self._chan is None:
             raise RuntimeError("Not connected")
-        self._chan.stdin.write(data)
+        write_bytes_to_text_stream(self._chan.stdin, data)
         await self._chan.stdin.drain()
 
-    def get_reader(self) -> asyncio.StreamReader:
-        if self._chan is None:
+    def get_reader(self) -> ByteReader:
+        if self._byte_reader is None:
             raise RuntimeError("Not connected")
-        return self._chan.stdout
+        return self._byte_reader

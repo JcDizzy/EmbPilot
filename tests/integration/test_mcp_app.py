@@ -119,6 +119,16 @@ def test_build_tool_catalog_lists_core_tools() -> None:
     } <= names
 
 
+def test_send_command_schema_exposes_line_ending_strategy() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    tool = next(t for t in build_tool_catalog() if t.name == "send_command")
+    line_ending_schema = tool.inputSchema["properties"]["line_ending"]
+
+    assert line_ending_schema["default"] == "as-is"
+    assert line_ending_schema["enum"] == ["as-is", "none", "lf", "crlf", "cr"]
+
+
 def test_reset_target_schema_excludes_dtr_and_rts() -> None:
     from embpilot.mcp_app import build_tool_catalog
 

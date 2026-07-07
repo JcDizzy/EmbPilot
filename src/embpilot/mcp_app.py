@@ -100,6 +100,15 @@ def build_tool_catalog() -> list[Tool]:
                         "type": "integer",
                         "default": 5000,
                     },
+                    "line_ending": {
+                        "type": "string",
+                        "enum": ["as-is", "none", "lf", "crlf", "cr"],
+                        "default": "as-is",
+                        "description": (
+                            "How EmbPilot should terminate the command before "
+                            "writing it to the device."
+                        ),
+                    },
                 },
                 "required": ["command"],
             },
@@ -211,6 +220,7 @@ async def dispatch_tool(
                 command=arguments["command"],
                 expect_regex=arguments.get("expect_regex"),
                 timeout_ms=arguments.get("timeout_ms", 5000),
+                line_ending=arguments.get("line_ending", "as-is"),
             )
             return [TextContent(type="text", text=output)]
         if name == "reset_target":

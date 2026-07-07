@@ -4,8 +4,43 @@ Abstract base class for all device drivers (Serial, Telnet, SSH).
 
 from __future__ import annotations
 
-import asyncio
 from abc import ABC, abstractmethod
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class ByteReader(Protocol):
+    """Minimal byte-stream reader contract consumed by the runtime pipeline."""
+
+    async def read(self, n: int = -1) -> bytes:
+        ...
+
+
+class TextReaderAsBytes:
+    """Adapt text-mode network readers to EmbPilot's byte-stream contract."""
+
+    def __init__(self, reader: object, encoding: str = "utf-8") -> None:
+        self._reader = reader
+        self._encoding = encoding
+
+    async def read(self, n: int = -1) -> bytes:
+        data = await self._reader.read(n)
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, str):
+            return data.encode(self._encoding)
+        if data is None:
+            return b""
+        raise TypeError(f"Reader returned unsupported type: {type(data).__name__}")
+
+
+def write_bytes_to_text_stream(writer: object, data: bytes, encoding: str = "utf-8") -> None:
+    """Write bytes through text-first stream writers."""
+
+    try:
+        writer.write(data.decode(encoding, errors="replace"))
+    except TypeError:
+        writer.write(data)
 
 
 class BaseDevice(ABC):
@@ -46,7 +81,7 @@ class BaseDevice(ABC):
         """Write raw *data* to the device."""
 
     @abstractmethod
-    def get_reader(self) -> asyncio.StreamReader:
+    def get_reader(self) -> ByteReader:
         """Return the stream reader consumed by ``LogProducer``.
 
         Raises ``RuntimeError`` if called before ``connect()``.

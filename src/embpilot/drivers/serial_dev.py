@@ -10,7 +10,7 @@ from typing import Optional
 
 import serial_asyncio
 
-from embpilot.drivers.base import BaseDevice
+from embpilot.drivers.base import BaseDevice, ByteReader
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class SerialDevice(BaseDevice):
         self._writer.write(data)
         await self._writer.drain()
 
-    def get_reader(self) -> asyncio.StreamReader:
+    def get_reader(self) -> ByteReader:
         if self._reader is None:
             raise RuntimeError("Not connected")
         return self._reader

@@ -103,8 +103,25 @@ async def test_telnet_write(mock_streams):
         await dev.connect()
 
         await dev.write(b"ifconfig\n")
-        writer.write.assert_called_once_with(b"ifconfig\n")
+        writer.write.assert_called_once_with("ifconfig\n")
         writer.drain.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_telnet_reader_returns_bytes_from_text_stream(mock_streams):
+    reader, writer = mock_streams
+    reader.read = AsyncMock(return_value="boot ok\n")
+
+    with patch(
+        "embpilot.drivers.telnet_dev.telnetlib3.open_connection",
+        new=AsyncMock(return_value=(reader, writer)),
+    ):
+        dev = TelnetDevice(host="192.168.1.100")
+        await dev.connect()
+
+        data = await dev.get_reader().read(4096)
+
+        assert data == b"boot ok\n"
 
 
 # ── SshDevice ────────────────────────────────────────────────────────────────
@@ -132,7 +149,8 @@ async def test_ssh_connect_disconnect():
         assert dev.is_connected
 
         await dev.write(b"reboot\n")
-        mock_chan.stdin.write.assert_called_once_with(b"reboot\n")
+        mock_conn.create_process.assert_awaited_once_with()
+        mock_chan.stdin.write.assert_called_once_with("reboot\n")
         mock_chan.stdin.drain.assert_awaited_once()
 
         await dev.disconnect()
@@ -165,3 +183,28 @@ async def test_ssh_with_key_file():
         _call_kwargs = mock_connect.call_args[1]
         assert _call_kwargs["client_keys"] == ["/home/user/.ssh/id_rsa"]
         assert "password" not in _call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_ssh_reader_returns_bytes_from_text_stream():
+    mock_chan = MagicMock()
+    mock_chan.stdout = MagicMock()
+    mock_chan.stdout.read = AsyncMock(return_value="ready\n")
+    mock_chan.stdin = MagicMock()
+    mock_chan.stdin.drain = AsyncMock()
+    mock_chan.wait_closed = AsyncMock()
+
+    mock_conn = MagicMock()
+    mock_conn.create_process = AsyncMock(return_value=mock_chan)
+    mock_conn.wait_closed = AsyncMock()
+
+    with patch(
+        "embpilot.drivers.ssh_dev.asyncssh.connect",
+        new=AsyncMock(return_value=mock_conn),
+    ):
+        dev = SshDevice(host="192.168.1.100", username="root")
+        await dev.connect()
+
+        data = await dev.get_reader().read(4096)
+
+        assert data == b"ready\n"

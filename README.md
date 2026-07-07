@@ -74,6 +74,11 @@ src/embpilot/
   the `runtime/` package.
 - `runtime/pipeline.py` now uses explicit dispatcher fan-out instead of the old
   implicit multi-consumer queue description.
+- Driver implementations expose a byte-oriented runtime contract. Text-mode
+  transports such as Telnet and SSH adapt their library streams internally, so
+  the log pipeline always receives bytes before frame assembly. `send_command`
+  accepts an explicit `line_ending` strategy (`as-is`, `none`, `lf`, `crlf`,
+  `cr`) for targets which require a specific terminator.
 
 ## License
 

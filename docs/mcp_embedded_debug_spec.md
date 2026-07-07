@@ -11,7 +11,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 ### 1. Tools (AI 可调用的主动操作)
 * **`connect_device(interface_type, config)`**：建立硬件连接。支持 `serial`（参数：端口号、波特率）及 `telnet/ssh`（参数：IP、端口、用户名/密码）。
 * **`disconnect_device()`**：主动断开连接，释放系统串口或网络句柄。
-* **`send_command(command, expect_regex, timeout_ms)`**：向设备发送指令（如 `help`, `ifconfig`）。支持传入正则表达式 `expect_regex`；返回值应是该条命令窗口内采集到的输出，在本地匹配成功后立即截断返回，若未匹配则在超时点返回已收集窗口内容，以优化响应时间并避免把无关刷屏日志混进结果。
+* **`send_command(command, expect_regex, timeout_ms, line_ending)`**：向设备发送指令（如 `help`, `ifconfig`）。支持传入正则表达式 `expect_regex`；返回值应是该条命令窗口内采集到的输出，在本地匹配成功后立即截断返回，若未匹配则在超时点返回已收集窗口内容，以优化响应时间并避免把无关刷屏日志混进结果。`line_ending` 支持 `as-is`、`none`、`lf`、`crlf`、`cr`，用于适配不同 bootloader、AT shell、Linux shell 对命令结束符的要求。
 * **`reset_target(method)`**：复位目标板。当前仅支持 `reboot`（向设备发送 reboot 文本命令）；DTR/RTS 引脚电平控制在 runtime 真正支持前不纳入公共接口，避免发布无法兑现的复位能力。
 * **`list_sessions()`**：列出所有已记录的会话（按时间倒序），含 `session_id`、接口、设备名、起止时间、状态等。
 * **`delete_session(session_id)`**：删除某个历史会话的数据库文件与索引记录。活动会话不可删除（须先 `disconnect_device`）。
@@ -48,6 +48,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 
 ### 2. 关键设计点
 * **协议层 / 运行时分层**：`mcp_app.py` 负责 MCP Tools / Resources / Prompts 注册与 stdio server 启动；具体连接生命周期、日志处理、expect 行为和资源组装由 `runtime/` 模块承接。
+* **统一 driver 契约**：runtime 只面向 `BaseDevice.write(bytes)` 与 byte reader 工作。Serial 保持原生 bytes；Telnet/SSH 等 text-mode 库在 driver 内部完成 bytes/text 适配，避免 frame assembly、expect、数据库层各自处理传输差异。
 * **显式 dispatcher 扇出**：底层基于 `asyncio` 和 `pyserial-asyncio`（或 `telnetlib3`），读取任务仅负责接收原始字节、做 frame assembly、追加宿主机时间戳并分发到多个 sink；不再依赖“一个队列被多个消费者同时读取”的隐式行为描述。
 * **宿主机绝对时间戳同步**：所有进入队列的日志行统一附加 `[YYYY-MM-DD HH:MM:SS.SSS]` 前缀，用以对齐 AI 动作与硬件异动的因果关系。
 * **内存容量保护**：内存中的即时查看历史采用固定长度环形缓冲区（`collections.deque(maxlen=2000)`），旧数据自动溢出，海量历史完全交由本地数据库承载。

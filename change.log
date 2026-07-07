@@ -64,3 +64,5 @@
 [2026-07-02]
 - optional RAG dependencies: moved fastembed and lancedb out of required dependencies into the `rag` extra (`pip install embpilot[rag]`). The core MCP server (Serial/Telnet/SSH, all 8 tools / 3 resources / 2 prompts) no longer pulls the heavy RAG stack — a clean `uvx embpilot` installs ~41 packages instead of 75.
 - doctor diagnostics: added `embpilot doctor` (src/embpilot/doctor.py) and a `doctor` CLI subcommand reporting version/Python/platform, core and optional-RAG dependency status, drivers, sqlite, writable data dir, and detected serial ports; exits 0 if all required checks pass else 1.
+[2026-07-07]
+- P0 transport contract: standardized runtime drivers around a bytes contract while adapting Telnet/SSH text-mode streams internally, removed the fixed SSH `bash` shell command, added `send_command` line-ending strategies (`as-is`/`none`/`lf`/`crlf`/`cr`) through runtime and MCP schema, and added fake Telnet/SSH server integration coverage plus line-ending regressions.

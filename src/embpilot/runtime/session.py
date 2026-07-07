@@ -142,14 +142,16 @@ class SessionManager:
         command: str,
         expect_regex: str | None = None,
         timeout_ms: int = 5000,
+        line_ending: str = "as-is",
     ) -> str:
         async with self._command_lock:
             if self._device is None:
                 raise RuntimeError("No active device connection")
 
+            command_bytes = _encode_command(command, line_ending)
             window = self._expect.open_window(expect_regex=expect_regex, timeout_ms=timeout_ms)
             try:
-                await self._device.write(command.encode("utf-8"))
+                await self._device.write(command_bytes)
             except Exception:
                 self._expect.cancel_window(window)
                 raise
@@ -159,7 +161,12 @@ class SessionManager:
                 await self._main_db.insert_operation(
                     actor="AI",
                     action_type="call_tool",
-                    detail={"tool": "send_command", "command": command, "expect": expect_regex},
+                    detail={
+                        "tool": "send_command",
+                        "command": command,
+                        "expect": expect_regex,
+                        "line_ending": line_ending,
+                    },
                     session_id=self._session_info.session_id,
                 )
 
@@ -334,6 +341,24 @@ def _device_display_name(interface_type: str, config: dict[str, Any]) -> str:
 
 def _sanitize_device_name(name: str) -> str:
     return "".join(char if char.isalnum() else "_" for char in name).strip("_") or "device"
+
+
+def _encode_command(command: str, line_ending: str = "as-is") -> bytes:
+    endings = {
+        "as-is": "",
+        "none": "",
+        "lf": "\n",
+        "crlf": "\r\n",
+        "cr": "\r",
+    }
+    if line_ending not in endings:
+        allowed = ", ".join(sorted(endings))
+        raise ValueError(f"Unsupported line ending: {line_ending!r} (use {allowed})")
+    if line_ending == "as-is":
+        text = command
+    else:
+        text = command.rstrip("\r\n") + endings[line_ending]
+    return text.encode("utf-8")
 
 
 class _SessionInfoSink:

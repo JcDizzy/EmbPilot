@@ -1,5 +1,36 @@
 # Progress
 
+## 2026-07-07 — P0 real transport contract hardening
+
+### Done
+- Stabilized the runtime driver contract around bytes:
+  - `BaseDevice.get_reader()` now documents a byte-reader contract.
+  - Telnet and SSH drivers adapt text-mode library readers/writers internally,
+    while callers still use `write(bytes)`.
+  - Serial remains a native bytes transport.
+- Removed the fixed SSH `bash` command. `SshDevice` now opens the user's default
+  shell/session through AsyncSSH without forcing a shell binary or pty.
+- Added `send_command(..., line_ending=...)` with `as-is`, `none`, `lf`, `crlf`,
+  and `cr`, and exposed the same option through the MCP tool schema.
+- Added fake network-server integration coverage for Telnet and SSH driver
+  round trips, plus unit coverage for text-reader adaptation and line-ending
+  behavior.
+- Verified the focused P0 set with:
+  `.\.venv\Scripts\python.exe -m pytest tests\test_drivers\test_devices.py tests\integration\test_driver_links.py tests\runtime\test_session.py tests\integration\test_mcp_app.py -q`
+  Result: 50 passed.
+
+### Known issues / pitfalls
+- `py -3.11` is not installed on this machine right now; verification used the
+  project `.venv` Python 3.12.
+- pyserial `loop://` with `serial_asyncio` timed out on write in this Windows
+  environment, so Serial remains covered by writer-contract tests rather than a
+  fake serial port integration test in this pass.
+
+### Next good step
+- Continue with P1 MCP protocol contract hardening: standard tool errors,
+  unknown tool/resource protocol errors, JSON Schema tightening, and either real
+  resource update notifications or removing the current subscribable wording.
+
 ## 2026-07-02 — packaging: optional RAG + doctor
 
 ### Done

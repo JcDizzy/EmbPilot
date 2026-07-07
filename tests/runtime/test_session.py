@@ -169,6 +169,76 @@ def test_send_command_returns_window_until_expect_match(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_send_command_applies_line_ending_strategy(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+            framing_timeout_ms=5,
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            task = asyncio.create_task(
+                manager.send_command(
+                    "status\n",
+                    expect_regex=r"ready",
+                    timeout_ms=500,
+                    line_ending="crlf",
+                )
+            )
+            await asyncio.sleep(0)
+            fake.emit_line("ready")
+
+            await task
+
+            assert fake.writes == [b"status\r\n"]
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_send_command_rejects_unknown_line_ending(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            with pytest.raises(ValueError, match="Unsupported line ending"):
+                await manager.send_command("status", line_ending="newline")
+
+            assert fake.writes == []
+            assert len(manager._expect._windows) == 0
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
 def test_disconnect_and_shutdown_do_not_hang_when_reader_stays_open(tmp_path, monkeypatch):
     async def scenario() -> None:
         fake = _NonClosingDevice()
