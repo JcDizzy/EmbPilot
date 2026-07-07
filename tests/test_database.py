@@ -329,3 +329,42 @@ async def test_session_database_skips_fts_rebuild_when_counts_match(monkeypatch)
         monkeypatch.setattr(reopened, "_rebuild_fts", fail_rebuild)
         await reopened.open()
         await reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_session_database_rebuilds_stale_external_content_fts_index():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        db_path = d / "stale_fts.db"
+        import aiosqlite
+
+        conn = await aiosqlite.connect(db_path)
+        await conn.execute(
+            "CREATE TABLE device_logs ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "timestamp TEXT NOT NULL, "
+            "source TEXT NOT NULL, "
+            "level TEXT NOT NULL DEFAULT 'info', "
+            "tag TEXT, "
+            "text TEXT NOT NULL)"
+        )
+        await conn.execute(
+            "CREATE VIRTUAL TABLE device_logs_fts "
+            "USING fts5(text, content='device_logs', content_rowid='id')"
+        )
+        await conn.execute(
+            "INSERT INTO device_logs (timestamp, source, text) VALUES (?, ?, ?)",
+            ("2026-07-07 00:00:00.000", "serial", "stale ERROR token"),
+        )
+        await conn.commit()
+        await conn.close()
+
+        session = SessionDatabase(db_path)
+        await session.open()
+
+        results = await session.search_logs("stale")
+
+        assert len(results) == 1
+        assert results[0]["text"] == "stale ERROR token"
+
+        await session.close()

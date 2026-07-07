@@ -15,7 +15,7 @@
   - `RagEngine.delete_document()` escapes document ids, and MCP schemas now
     constrain RAG `doc_id` values with length and pattern checks
   - `reset_target` now requires `confirm=True`
-  - FTS rebuild now runs only when migration/count checks show it is needed
+  - FTS rebuild now runs only when migration or FTS5 integrity checks show it is needed
   - CLI now exposes safety limit flags for command timeout, search/export/audit
     limits, and MCP tool rate limiting
 - Verified with:
@@ -27,6 +27,13 @@
   choice because it changes user-facing query semantics.
 - A full `[rag]` clean install/import test still requires an environment with
   the optional heavy dependencies installed.
+
+### Review follow-up
+- Fixed a pre-push review issue where external-content FTS5 rebuild detection
+  relied on row counts. SQLite can report the external content row count even
+  when the full-text index itself is stale, so EmbPilot now uses FTS5
+  `integrity-check` with external-content verification before deciding whether
+  to rebuild.
 
 ## 2026-07-07 — P2 RAG productization
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -480,8 +481,11 @@ class SessionDatabase:
         log_count = log_row["cnt"] if log_row else 0
         if log_count > 0 and not fts_existed_before_open:
             return True
-        fts_cursor = await self._conn.execute(
-            "SELECT COUNT(*) as cnt FROM device_logs_fts"
-        )
-        fts_row = await fts_cursor.fetchone()
-        return log_count != (fts_row["cnt"] if fts_row else 0)
+        try:
+            await self._conn.execute(
+                "INSERT INTO device_logs_fts(device_logs_fts, rank) "
+                "VALUES ('integrity-check', 1)"
+            )
+        except sqlite3.DatabaseError:
+            return True
+        return False
