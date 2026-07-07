@@ -186,7 +186,8 @@ class RagEngine:
     async def delete_document(self, doc_id: str) -> None:
         """Delete a document by ID."""
         if self._table is not None:
-            await self._table.delete(f"id = '{doc_id}'")
+            safe_doc_id = doc_id.replace("'", "''")
+            await self._table.delete(f"id = '{safe_doc_id}'")
 
     async def list_sources(self) -> list[str]:
         """Return distinct source values."""

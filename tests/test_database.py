@@ -183,6 +183,30 @@ async def test_delete_session_refuses_path_outside_allowed_directory():
 
 
 @pytest.mark.asyncio
+async def test_delete_session_removes_wal_and_shm_sidecars():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        session_dir = d / "sessions"
+        session_dir.mkdir()
+        db_path = session_dir / "session.db"
+        db_path.touch()
+        Path(f"{db_path}-wal").touch()
+        Path(f"{db_path}-shm").touch()
+
+        main = MainDatabase(d / "embpilot_main.db")
+        await main.open()
+        await main.register_session("sidecar", "board", "serial", str(db_path))
+
+        await main.delete_session("sidecar", allowed_dir=session_dir)
+
+        assert not db_path.exists()
+        assert not Path(f"{db_path}-wal").exists()
+        assert not Path(f"{db_path}-shm").exists()
+
+        await main.close()
+
+
+@pytest.mark.asyncio
 async def test_session_database_fetch_logs_is_ordered():
     """fetch_logs returns rows in insertion order with limit/offset paging."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -283,3 +307,25 @@ async def test_session_database_migrates_legacy_log_table_to_metadata_and_fts():
         assert results[0]["tag"] is None
 
         await session.close()
+
+
+@pytest.mark.asyncio
+async def test_session_database_skips_fts_rebuild_when_counts_match(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        session = SessionDatabase(d / "session_test.db")
+        await session.open()
+        await session.bulk_insert_logs(
+            [LogLine(datetime.now(timezone.utc), "ERROR: once")],
+            source="serial",
+        )
+        await session.close()
+
+        reopened = SessionDatabase(d / "session_test.db")
+
+        async def fail_rebuild() -> None:
+            raise AssertionError("FTS rebuild should not run when counts match")
+
+        monkeypatch.setattr(reopened, "_rebuild_fts", fail_rebuild)
+        await reopened.open()
+        await reopened.close()

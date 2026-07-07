@@ -176,6 +176,18 @@ def test_reset_target_schema_excludes_dtr_and_rts() -> None:
     method_schema = tool.inputSchema["properties"]["method"]
 
     assert method_schema.get("enum") == ["reboot"]
+    assert "confirm" in tool.inputSchema["required"]
+
+
+def test_ssh_known_hosts_schema_documents_explicit_opt_out() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    tool = next(t for t in build_tool_catalog() if t.name == "connect_device")
+    ssh_schema = tool.inputSchema["allOf"][2]["then"]["properties"]["config"]
+    known_hosts = ssh_schema["properties"]["known_hosts"]
+
+    assert "Omit to use AsyncSSH defaults" in known_hosts["description"]
+    assert {"type": "null"} in known_hosts["anyOf"]
 
 
 def test_delete_session_schema_requires_confirmation() -> None:
@@ -222,6 +234,30 @@ def test_call_tool_handler_invalid_arguments_raises_protocol_error(tmp_path: Pat
                 params=types.CallToolRequestParams(
                     name="send_command",
                     arguments={"command": "status", "unexpected": True},
+                )
+            )
+            with pytest.raises(McpError) as exc_info:
+                await app.request_handlers[types.CallToolRequest](request)
+        finally:
+            await manager.shutdown()
+
+        assert exc_info.value.error.code == types.INVALID_PARAMS
+        assert "Invalid arguments" in exc_info.value.error.message
+
+    asyncio.run(scenario())
+
+
+def test_call_tool_handler_rejects_invalid_rag_doc_id(tmp_path: Path) -> None:
+    from embpilot.mcp_app import create_mcp_app
+
+    async def scenario() -> None:
+        app, manager = create_mcp_app(build_config(tmp_path))
+        await manager.start()
+        try:
+            request = types.CallToolRequest(
+                params=types.CallToolRequestParams(
+                    name="delete_doc",
+                    arguments={"doc_id": "x' OR id != '", "confirm": True},
                 )
             )
             with pytest.raises(McpError) as exc_info:

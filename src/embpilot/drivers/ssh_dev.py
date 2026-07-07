@@ -17,6 +17,7 @@ from embpilot.drivers.base import (
 )
 
 logger = logging.getLogger(__name__)
+_UNSET = object()
 
 
 class SshDevice(BaseDevice):
@@ -35,7 +36,8 @@ class SshDevice(BaseDevice):
     key_file:
         Path to a private key file (optional).
     known_hosts:
-        Path to known_hosts file, or ``None`` to skip host-key verification.
+        Path to known_hosts file. Omit to use AsyncSSH defaults, or pass
+        ``None`` explicitly to skip host-key verification.
     """
 
     def __init__(
@@ -45,7 +47,7 @@ class SshDevice(BaseDevice):
         username: str = "",
         password: Optional[str] = None,
         key_file: Optional[str] = None,
-        known_hosts: Optional[str] = None,
+        known_hosts: str | None | object = _UNSET,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -68,8 +70,9 @@ class SshDevice(BaseDevice):
             "host": self._host,
             "port": self._port,
             "username": self._username,
-            "known_hosts": self._known_hosts,
         }
+        if self._known_hosts is not _UNSET:
+            connect_kwargs["known_hosts"] = self._known_hosts
         if self._password is not None:
             connect_kwargs["password"] = self._password
         if self._key_file is not None:

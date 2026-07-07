@@ -1,5 +1,33 @@
 # Progress
 
+## 2026-07-07 — release hardening from second review
+
+### Done
+- Addressed high-priority items from
+  `docs/EmbPilot_second_review_issues_recommendations.md`:
+  - added missing `jsonschema>=4.0` core dependency
+  - added explicit `pandas` / `pyarrow` dependencies to the `rag` extra
+  - added clean install smoke coverage which imports `embpilot.mcp_app`
+  - changed SSH host-key behavior so omitted `known_hosts` uses AsyncSSH
+    defaults; only explicit `known_hosts: null` disables verification
+  - session deletion and retention cleanup now remove `.db`, `-wal`, and
+    `-shm` sidecars with managed-directory checks on every path
+  - `RagEngine.delete_document()` escapes document ids, and MCP schemas now
+    constrain RAG `doc_id` values with length and pattern checks
+  - `reset_target` now requires `confirm=True`
+  - FTS rebuild now runs only when migration/count checks show it is needed
+  - CLI now exposes safety limit flags for command timeout, search/export/audit
+    limits, and MCP tool rate limiting
+- Verified with:
+  `.\.venv\Scripts\python.exe -m pytest tests\test_drivers\test_devices.py tests\test_database.py tests\runtime\test_session.py tests\integration\test_mcp_app.py tests\integration\test_cli.py -q`
+  Result: 90 passed.
+
+### Deferred
+- Search mode `fts|substring` / fallback behavior remains a separate design
+  choice because it changes user-facing query semantics.
+- A full `[rag]` clean install/import test still requires an environment with
+  the optional heavy dependencies installed.
+
 ## 2026-07-07 — P2 RAG productization
 
 ### Done

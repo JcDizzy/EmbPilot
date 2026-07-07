@@ -111,7 +111,13 @@ def build_tool_catalog() -> list[Tool]:
             "username": {"type": "string", "default": ""},
             "password": {"type": "string"},
             "key_file": {"type": "string", "minLength": 1},
-            "known_hosts": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "known_hosts": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "description": (
+                    "Omit to use AsyncSSH defaults. Pass null only to explicitly "
+                    "disable host-key verification."
+                ),
+            },
             "device_name": device_name_schema,
         },
         "required": ["host"],
@@ -209,8 +215,13 @@ def build_tool_catalog() -> list[Tool]:
                         "enum": ["reboot"],
                         "default": "reboot",
                     },
+                    "confirm": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Must be true to reset the active target.",
+                    },
                 },
-                "required": [],
+                "required": ["confirm"],
                 "additionalProperties": False,
             },
         ),
@@ -340,7 +351,12 @@ def build_tool_catalog() -> list[Tool]:
                     "text": {"type": "string", "minLength": 1},
                     "source": {"type": "string", "minLength": 1, "default": "unknown"},
                     "metadata": {"type": "object"},
-                    "doc_id": {"type": "string", "minLength": 1},
+                    "doc_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[A-Za-z0-9_.:-]+$",
+                    },
                 },
                 "required": ["text"],
                 "additionalProperties": False,
@@ -378,7 +394,12 @@ def build_tool_catalog() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "doc_id": {"type": "string", "minLength": 1},
+                    "doc_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[A-Za-z0-9_.:-]+$",
+                    },
                     "confirm": {
                         "type": "boolean",
                         "default": False,
@@ -429,7 +450,10 @@ async def _execute_tool(
         )
         return [TextContent(type="text", text=output)]
     if name == "reset_target":
-        message = await manager.reset_target(method=arguments.get("method", "reboot"))
+        message = await manager.reset_target(
+            method=arguments.get("method", "reboot"),
+            confirm=arguments["confirm"],
+        )
         return [TextContent(type="text", text=message)]
     if name == "disconnect_device":
         await manager.disconnect_device()

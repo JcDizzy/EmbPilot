@@ -39,15 +39,16 @@ def build_device(interface_type: str, config: dict[str, Any]) -> BaseDevice:
         )
     if interface_type == "ssh":
         from embpilot.drivers.ssh_dev import SshDevice
-
-        return SshDevice(
-            host=config["host"],
-            port=config.get("port", 22),
-            username=config.get("username", ""),
-            password=config.get("password"),
-            key_file=config.get("key_file"),
-            known_hosts=config.get("known_hosts"),
-        )
+        ssh_kwargs: dict[str, Any] = {
+            "host": config["host"],
+            "port": config.get("port", 22),
+            "username": config.get("username", ""),
+            "password": config.get("password"),
+            "key_file": config.get("key_file"),
+        }
+        if "known_hosts" in config:
+            ssh_kwargs["known_hosts"] = config["known_hosts"]
+        return SshDevice(**ssh_kwargs)
     raise ValueError(f"Unsupported interface: {interface_type}")
 
 
@@ -196,7 +197,7 @@ class SessionManager:
             formatted = "\n".join(line.formatted() for line in lines)
             return formatted or "(no output captured)"
 
-    async def reset_target(self, method: str = "reboot") -> str:
+    async def reset_target(self, method: str = "reboot", confirm: bool = False) -> str:
         if method != "reboot":
             raise ValueError(
                 f"Unsupported reset method: {method!r} (only 'reboot' is supported)"
@@ -204,6 +205,8 @@ class SessionManager:
         async with self._command_lock:
             if self._device is None:
                 raise RuntimeError("No active device connection")
+            if not confirm:
+                raise PermissionError("reset_target requires confirm=true")
             # reset_target sends a fixed, complete reboot instruction including the
             # line terminator; send_command instead leaves termination to the caller.
             await self._device.write(b"reboot\n")
@@ -211,7 +214,7 @@ class SessionManager:
                 await self._main_db.insert_operation(
                     actor="AI",
                     action_type="call_tool",
-                    detail={"tool": "reset_target", "method": method},
+                    detail={"tool": "reset_target", "method": method, "confirm": confirm},
                     session_id=self._session_info.session_id,
                 )
             return "Reset command sent (reboot)."

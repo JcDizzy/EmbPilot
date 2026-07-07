@@ -28,6 +28,7 @@ dependencies = [
     "aiosqlite>=0.20",
     "telnetlib3>=2.0",
     "asyncssh>=2.14",
+    "jsonschema>=4.0",
 ]
 
 [project.scripts]
@@ -37,6 +38,8 @@ embpilot = "embpilot.cli:main"
 rag = [
     "fastembed>=0.3",
     "lancedb>=0.9",
+    "pandas>=2.0",
+    "pyarrow>=14",
 ]
 dev = [
     "pytest>=8.0",

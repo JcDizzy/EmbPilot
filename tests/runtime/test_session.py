@@ -475,7 +475,7 @@ def test_overlapping_send_command_calls_do_not_mix_outputs(tmp_path, monkeypatch
     asyncio.run(scenario())
 
 
-def test_reset_target_reboot_writes_reboot_command(tmp_path, monkeypatch):
+def test_reset_target_reboot_requires_confirmation(tmp_path, monkeypatch):
     async def scenario() -> None:
         fake = _FakeDevice()
         monkeypatch.setattr(
@@ -493,7 +493,12 @@ def test_reset_target_reboot_writes_reboot_command(tmp_path, monkeypatch):
         try:
             await manager.connect_device("serial", {"port": "COM9"})
 
-            message = await manager.reset_target()
+            with pytest.raises(PermissionError, match="confirm=true"):
+                await manager.reset_target()
+
+            assert fake.writes == []
+
+            message = await manager.reset_target(confirm=True)
 
             assert message == "Reset command sent (reboot)."
             assert fake.writes == [b"reboot\n"]

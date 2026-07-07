@@ -186,6 +186,50 @@ async def test_ssh_with_key_file():
 
 
 @pytest.mark.asyncio
+async def test_ssh_omits_known_hosts_by_default():
+    mock_chan = MagicMock()
+    mock_chan.stdout = asyncio.StreamReader()
+    mock_chan.stdin = MagicMock()
+    mock_chan.stdin.drain = AsyncMock()
+    mock_chan.wait_closed = AsyncMock()
+
+    mock_conn = MagicMock()
+    mock_conn.create_process = AsyncMock(return_value=mock_chan)
+    mock_conn.wait_closed = AsyncMock()
+
+    with patch(
+        "embpilot.drivers.ssh_dev.asyncssh.connect",
+        new=AsyncMock(return_value=mock_conn),
+    ) as mock_connect:
+        dev = SshDevice(host="192.168.1.100", username="root")
+        await dev.connect()
+
+        assert "known_hosts" not in mock_connect.call_args[1]
+
+
+@pytest.mark.asyncio
+async def test_ssh_explicit_none_known_hosts_disables_verification():
+    mock_chan = MagicMock()
+    mock_chan.stdout = asyncio.StreamReader()
+    mock_chan.stdin = MagicMock()
+    mock_chan.stdin.drain = AsyncMock()
+    mock_chan.wait_closed = AsyncMock()
+
+    mock_conn = MagicMock()
+    mock_conn.create_process = AsyncMock(return_value=mock_chan)
+    mock_conn.wait_closed = AsyncMock()
+
+    with patch(
+        "embpilot.drivers.ssh_dev.asyncssh.connect",
+        new=AsyncMock(return_value=mock_conn),
+    ) as mock_connect:
+        dev = SshDevice(host="192.168.1.100", username="root", known_hosts=None)
+        await dev.connect()
+
+        assert mock_connect.call_args[1]["known_hosts"] is None
+
+
+@pytest.mark.asyncio
 async def test_ssh_reader_returns_bytes_from_text_stream():
     mock_chan = MagicMock()
     mock_chan.stdout = MagicMock()

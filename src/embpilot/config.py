@@ -103,6 +103,16 @@ class EmbPilotConfig:
             kwargs["retention_days"] = args.retention_days
         if args.retention_max_gb is not None:
             kwargs["retention_max_gb"] = args.retention_max_gb
+        if getattr(args, "command_timeout_max_ms", None) is not None:
+            kwargs["command_timeout_max_ms"] = args.command_timeout_max_ms
+        if getattr(args, "search_limit_max", None) is not None:
+            kwargs["search_limit_max"] = args.search_limit_max
+        if getattr(args, "export_limit_max", None) is not None:
+            kwargs["export_limit_max"] = args.export_limit_max
+        if getattr(args, "audit_export_limit_max", None) is not None:
+            kwargs["audit_export_limit_max"] = args.audit_export_limit_max
+        if getattr(args, "tool_rate_limit_per_minute", None) is not None:
+            kwargs["tool_rate_limit_per_minute"] = args.tool_rate_limit_per_minute
 
         return cls(**kwargs)
 

@@ -19,6 +19,32 @@ def test_build_parser_includes_data_dir_flag() -> None:
     assert args.data_dir == "tmp-data"
 
 
+def test_build_parser_includes_safety_limit_flags() -> None:
+    from embpilot.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--command-timeout-max-ms",
+            "30000",
+            "--search-limit-max",
+            "500",
+            "--export-limit-max",
+            "5000",
+            "--audit-export-limit-max",
+            "1000",
+            "--tool-rate-limit-per-minute",
+            "60",
+        ]
+    )
+
+    assert args.command_timeout_max_ms == 30000
+    assert args.search_limit_max == 500
+    assert args.export_limit_max == 5000
+    assert args.audit_export_limit_max == 1000
+    assert args.tool_rate_limit_per_minute == 60
+
+
 def test_main_version_flag_prints_version(capsys: pytest.CaptureFixture[str]) -> None:
     from embpilot import __version__
     from embpilot.cli import main
@@ -176,6 +202,62 @@ def test_installed_package_includes_sql_schema_files(tmp_path: Path) -> None:
         "Missing packaged SQL schema files:\n"
         f"{locate_result.stderr or locate_result.stdout}"
     )
+
+
+def test_clean_install_can_import_mcp_app(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    venv_dir = tmp_path / "venv"
+    if sys.version_info >= (3, 11):
+        interpreter_cmd = [sys.executable]
+    elif os.name == "nt" and shutil.which("py"):
+        interpreter_cmd = ["py", "-3.11"]
+    else:
+        pytest.skip("A Python 3.11+ interpreter is required to install embpilot")
+
+    create_venv = subprocess.run(
+        [*interpreter_cmd, "-m", "venv", str(venv_dir)],
+        capture_output=True,
+        check=False,
+        cwd=repo_root,
+        text=True,
+    )
+    assert create_venv.returncode == 0, create_venv.stderr
+
+    scripts_dir = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+    venv_python = scripts_dir / ("python.exe" if os.name == "nt" else "python")
+
+    install_result = subprocess.run(
+        [
+            str(venv_python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--use-pep517",
+            str(repo_root),
+        ],
+        capture_output=True,
+        check=False,
+        cwd=repo_root,
+        text=True,
+        timeout=120,
+    )
+    assert install_result.returncode == 0, install_result.stderr
+
+    import_result = subprocess.run(
+        [
+            str(venv_python),
+            "-c",
+            "from embpilot.mcp_app import create_mcp_app; print('ok')",
+        ],
+        capture_output=True,
+        check=False,
+        cwd=repo_root,
+        text=True,
+    )
+
+    assert import_result.returncode == 0, import_result.stderr
+    assert import_result.stdout.strip() == "ok"
 
 
 def test_main_doctor_reports_version_and_core_deps(capsys: pytest.CaptureFixture[str]) -> None:

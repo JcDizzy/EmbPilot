@@ -63,6 +63,36 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Logging level (default: INFO)",
     )
+    parser.add_argument(
+        "--command-timeout-max-ms",
+        type=int,
+        default=None,
+        help="Maximum send_command timeout in milliseconds (default: 60000)",
+    )
+    parser.add_argument(
+        "--search-limit-max",
+        type=int,
+        default=None,
+        help="Maximum search_history_logs result limit (default: 1000)",
+    )
+    parser.add_argument(
+        "--export-limit-max",
+        type=int,
+        default=None,
+        help="Maximum export_session row limit (default: 10000)",
+    )
+    parser.add_argument(
+        "--audit-export-limit-max",
+        type=int,
+        default=None,
+        help="Maximum export_operation_history row limit (default: 5000)",
+    )
+    parser.add_argument(
+        "--tool-rate-limit-per-minute",
+        type=int,
+        default=None,
+        help="Maximum MCP tool calls per minute; <=0 disables the limiter (default: 120)",
+    )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser(
         "doctor",

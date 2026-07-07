@@ -41,6 +41,16 @@ Current resource direction:
   connection instead of pretending EmbPilot can issue one generic sysinfo probe
   across all targets.
 
+Safety defaults:
+
+- SSH uses AsyncSSH host-key defaults unless `known_hosts: null` is explicitly
+  passed in the connection config.
+- Destructive actions such as `reset_target`, dangerous commands, session
+  deletion, and RAG document deletion require explicit confirmation flags.
+- Safety limits can be tuned from the CLI with flags such as
+  `--command-timeout-max-ms`, `--export-limit-max`, and
+  `--tool-rate-limit-per-minute`.
+
 ## Project Status
 
 **Alpha** — active development.

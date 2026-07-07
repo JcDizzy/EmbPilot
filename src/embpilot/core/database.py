@@ -39,12 +39,23 @@ def _now_iso() -> str:
 
 
 def _session_file_size(db_path: str) -> int:
-    base = Path(db_path)
     total = 0
-    for path in (base, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
+    for path in _session_db_sidecars(Path(db_path)):
         if path.exists():
             total += path.stat().st_size
     return total
+
+
+def _session_db_sidecars(db_path: Path) -> list[Path]:
+    return [db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")]
+
+
+def _delete_session_db_files(db_path: Path, allowed_dir: Path | None = None) -> None:
+    for path in _session_db_sidecars(db_path):
+        target = ensure_path_within(path, allowed_dir) if allowed_dir is not None else path
+        if target.exists():
+            target.unlink()
+            logger.info("Deleted session file %s", target)
 
 
 def _infer_log_level(text: str) -> str:
@@ -160,11 +171,7 @@ class MainDatabase:
         row = await cursor.fetchone()
         if row:
             p = Path(row["db_path"])
-            if allowed_dir is not None:
-                p = ensure_path_within(p, allowed_dir)
-            if p.exists():
-                p.unlink()
-                logger.info("Deleted session file %s", p)
+            _delete_session_db_files(p, allowed_dir)
         await self._conn.execute(
             "DELETE FROM sessions WHERE session_id = ?", (session_id,)
         )
@@ -246,10 +253,7 @@ class MainDatabase:
         old_sessions = await cursor.fetchall()
         for row in old_sessions:
             p = Path(row["db_path"])
-            if allowed_dir is not None:
-                p = ensure_path_within(p, allowed_dir)
-            if p.exists():
-                p.unlink()
+            _delete_session_db_files(p, allowed_dir)
             await self._conn.execute(
                 "UPDATE sessions SET status='cleaned' WHERE session_id=?",
                 (row["session_id"],),
@@ -272,11 +276,9 @@ class MainDatabase:
                 if total_size <= max_bytes:
                     break
                 p = Path(row["db_path"])
-                if allowed_dir is not None:
-                    p = ensure_path_within(p, allowed_dir)
-                if p.exists():
+                if any(path.exists() for path in _session_db_sidecars(p)):
                     total_size -= _session_file_size(row["db_path"])
-                    p.unlink()
+                    _delete_session_db_files(p, allowed_dir)
                 await self._conn.execute(
                     "UPDATE sessions SET status='cleaned' WHERE session_id=?",
                     (row["session_id"],),
@@ -307,10 +309,12 @@ class SessionDatabase:
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.execute("PRAGMA synchronous=NORMAL")
         await self._conn.execute("PRAGMA busy_timeout=5000")
+        fts_existed = await self._fts_table_exists()
         await self._ensure_device_logs_table()
-        await self._migrate_schema()
+        migrated = await self._migrate_schema()
         await self._conn.executescript(_schema_session)
-        await self._rebuild_fts()
+        if migrated or await self._fts_needs_rebuild(fts_existed):
+            await self._rebuild_fts()
         await self._conn.commit()
         logger.info("Session database opened at %s", self._db_path)
 
@@ -421,17 +425,21 @@ class SessionDatabase:
         row = await cursor.fetchone()
         return row["cnt"] if row else 0
 
-    async def _migrate_schema(self) -> None:
+    async def _migrate_schema(self) -> bool:
         if self._conn is None:
-            return
+            return False
+        migrated = False
         cursor = await self._conn.execute("PRAGMA table_info(device_logs)")
         existing_columns = {row["name"] for row in await cursor.fetchall()}
         if "level" not in existing_columns:
             await self._conn.execute(
                 "ALTER TABLE device_logs ADD COLUMN level TEXT NOT NULL DEFAULT 'info'"
             )
+            migrated = True
         if "tag" not in existing_columns:
             await self._conn.execute("ALTER TABLE device_logs ADD COLUMN tag TEXT")
+            migrated = True
+        return migrated
 
     async def _ensure_device_logs_table(self) -> None:
         if self._conn is None:
@@ -455,3 +463,25 @@ class SessionDatabase:
         await self._conn.execute(
             "INSERT INTO device_logs_fts(device_logs_fts) VALUES ('rebuild')"
         )
+
+    async def _fts_table_exists(self) -> bool:
+        if self._conn is None:
+            return False
+        cursor = await self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'device_logs_fts'"
+        )
+        return await cursor.fetchone() is not None
+
+    async def _fts_needs_rebuild(self, fts_existed_before_open: bool) -> bool:
+        if self._conn is None:
+            return False
+        log_cursor = await self._conn.execute("SELECT COUNT(*) as cnt FROM device_logs")
+        log_row = await log_cursor.fetchone()
+        log_count = log_row["cnt"] if log_row else 0
+        if log_count > 0 and not fts_existed_before_open:
+            return True
+        fts_cursor = await self._conn.execute(
+            "SELECT COUNT(*) as cnt FROM device_logs_fts"
+        )
+        fts_row = await fts_cursor.fetchone()
+        return log_count != (fts_row["cnt"] if fts_row else 0)
