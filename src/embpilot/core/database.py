@@ -81,6 +81,16 @@ def _fts_phrase(keyword: str) -> str:
     return '"' + keyword.replace('"', '""') + '"'
 
 
+def _substring_like_pattern(keyword: str) -> str:
+    escaped = (
+        keyword
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    return f"%{escaped}%"
+
+
 # ── MainDatabase ─────────────────────────────────────────────────────────────
 
 class MainDatabase:
@@ -357,17 +367,28 @@ class SessionDatabase:
         time_window_seconds: Optional[int] = None,
         limit: int = 50,
         offset: int = 0,
+        mode: str = "fts",
     ) -> list[dict[str, Any]]:
         """Search device_logs by keyword and optional time window."""
         if self._conn is None:
             return []
-        query = (
-            "SELECT l.timestamp, l.source, l.level, l.tag, l.text "
-            "FROM device_logs_fts f "
-            "JOIN device_logs l ON l.id = f.rowid "
-            "WHERE device_logs_fts MATCH ?"
-        )
-        params: list[Any] = [_fts_phrase(keyword)]
+        if mode == "fts":
+            query = (
+                "SELECT l.timestamp, l.source, l.level, l.tag, l.text "
+                "FROM device_logs_fts f "
+                "JOIN device_logs l ON l.id = f.rowid "
+                "WHERE device_logs_fts MATCH ?"
+            )
+            params: list[Any] = [_fts_phrase(keyword)]
+        elif mode == "substring":
+            query = (
+                "SELECT l.timestamp, l.source, l.level, l.tag, l.text "
+                "FROM device_logs l "
+                "WHERE l.text LIKE ? ESCAPE '\\'"
+            )
+            params = [_substring_like_pattern(keyword)]
+        else:
+            raise ValueError("Unsupported search mode: use 'fts' or 'substring'")
 
         if time_window_seconds is not None:
             query += " AND l.timestamp >= datetime('now', ?)"

@@ -47,9 +47,13 @@ Safety defaults:
   passed in the connection config.
 - Destructive actions such as `reset_target`, dangerous commands, session
   deletion, and RAG document deletion require explicit confirmation flags.
+- Operation audit export redacts sensitive config keys and inline command
+  secrets such as passwords, tokens, Authorization headers, and AT Wi-Fi
+  passwords.
 - Safety limits can be tuned from the CLI with flags such as
   `--command-timeout-max-ms`, `--export-limit-max`, and
-  `--tool-rate-limit-per-minute`.
+  `--tool-rate-limit-per-minute`; MCP tool schemas are generated from those
+  configured limits.
 
 ## Project Status
 
@@ -94,7 +98,9 @@ src/embpilot/
   accepts an explicit `line_ending` strategy (`as-is`, `none`, `lf`, `crlf`,
   `cr`) for targets which require a specific terminator.
 - Session logs store inferred `level` and `tag` metadata and are indexed through
-  SQLite FTS5 for historical search.
+  SQLite FTS5 for historical search. `search_history_logs` defaults to
+  `mode="fts"` and also supports `mode="substring"` for literal partial-token
+  searches such as register names, paths, and abbreviated error fragments.
 
 ## License
 

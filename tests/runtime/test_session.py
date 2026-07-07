@@ -754,6 +754,51 @@ def test_export_operation_history_returns_redacted_json(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_send_command_audit_redacts_inline_secrets(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+            framing_timeout_ms=5,
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            task = asyncio.create_task(
+                manager.send_command(
+                    'AT+CWJAP="lab","wifi_secret" token=abc123 '
+                    'Authorization: Bearer ey.secret password plain_secret',
+                    expect_regex=r"OK",
+                    timeout_ms=500,
+                )
+            )
+            await asyncio.sleep(0)
+            fake.emit_line("OK")
+
+            await task
+            exported = await manager.export_operation_history()
+
+            assert "wifi_secret" not in exported
+            assert "abc123" not in exported
+            assert "ey.secret" not in exported
+            assert "plain_secret" not in exported
+            assert "***REDACTED***" in exported
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
 def test_search_session_logs_raises_for_unknown_session(tmp_path):
     async def scenario() -> None:
         config = EmbPilotConfig(

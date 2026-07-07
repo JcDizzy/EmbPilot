@@ -76,6 +76,26 @@ async def test_session_database_bulk_insert_and_search():
 
 
 @pytest.mark.asyncio
+async def test_session_database_substring_search_matches_inside_tokens():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        session = SessionDatabase(d / "session_test.db")
+        await session.open()
+
+        await session.bulk_insert_logs(
+            [LogLine(datetime.now(timezone.utc), "ERROR: voltage rail dropped")],
+            source="serial",
+        )
+
+        results = await session.search_logs("ERR", mode="substring")
+
+        assert len(results) == 1
+        assert "ERROR" in results[0]["text"]
+
+        await session.close()
+
+
+@pytest.mark.asyncio
 async def test_main_database_cleanup():
     """Verify that expired session cleanup works."""
     with tempfile.TemporaryDirectory() as tmp:

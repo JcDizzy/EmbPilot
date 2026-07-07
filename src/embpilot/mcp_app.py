@@ -43,6 +43,10 @@ _DEFAULT_COMMAND_TIMEOUT_MAX_MS = 60_000
 _DEFAULT_SEARCH_LIMIT_MAX = 1_000
 _DEFAULT_EXPORT_LIMIT_MAX = 10_000
 _DEFAULT_AUDIT_EXPORT_LIMIT_MAX = 5_000
+_DEFAULT_COMMAND_TIMEOUT_MS = 5_000
+_DEFAULT_SEARCH_LIMIT = 50
+_DEFAULT_EXPORT_LIMIT = 2_000
+_DEFAULT_AUDIT_EXPORT_LIMIT = 200
 
 
 def get_active_session_manager() -> Optional[SessionManager]:
@@ -72,7 +76,25 @@ def build_resource_catalog() -> list[Resource]:
     ]
 
 
-def build_tool_catalog() -> list[Tool]:
+def build_tool_catalog(config: EmbPilotConfig | None = None) -> list[Tool]:
+    command_timeout_max_ms = (
+        config.command_timeout_max_ms if config else _DEFAULT_COMMAND_TIMEOUT_MAX_MS
+    )
+    search_limit_max = config.search_limit_max if config else _DEFAULT_SEARCH_LIMIT_MAX
+    export_limit_max = config.export_limit_max if config else _DEFAULT_EXPORT_LIMIT_MAX
+    audit_export_limit_max = (
+        config.audit_export_limit_max if config else _DEFAULT_AUDIT_EXPORT_LIMIT_MAX
+    )
+    command_timeout_default_ms = min(
+        _DEFAULT_COMMAND_TIMEOUT_MS,
+        command_timeout_max_ms,
+    )
+    search_limit_default = min(_DEFAULT_SEARCH_LIMIT, search_limit_max)
+    export_limit_default = min(_DEFAULT_EXPORT_LIMIT, export_limit_max)
+    audit_export_limit_default = min(
+        _DEFAULT_AUDIT_EXPORT_LIMIT,
+        audit_export_limit_max,
+    )
     device_name_schema = {
         "type": "string",
         "minLength": 1,
@@ -177,8 +199,8 @@ def build_tool_catalog() -> list[Tool]:
                     "timeout_ms": {
                         "type": "integer",
                         "minimum": 1,
-                        "maximum": _DEFAULT_COMMAND_TIMEOUT_MAX_MS,
-                        "default": 5000,
+                        "maximum": command_timeout_max_ms,
+                        "default": command_timeout_default_ms,
                     },
                     "line_ending": {
                         "type": "string",
@@ -282,10 +304,19 @@ def build_tool_catalog() -> list[Tool]:
                     "limit": {
                         "type": "integer",
                         "minimum": 1,
-                        "maximum": _DEFAULT_SEARCH_LIMIT_MAX,
-                        "default": 50,
+                        "maximum": search_limit_max,
+                        "default": search_limit_default,
                     },
                     "offset": {"type": "integer", "minimum": 0, "default": 0},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["fts", "substring"],
+                        "default": "fts",
+                        "description": (
+                            "fts uses SQLite full-text token matching; substring "
+                            "uses literal LIKE matching for partial tokens."
+                        ),
+                    },
                 },
                 "required": ["session_id", "keyword"],
                 "additionalProperties": False,
@@ -309,8 +340,8 @@ def build_tool_catalog() -> list[Tool]:
                     "limit": {
                         "type": "integer",
                         "minimum": 1,
-                        "maximum": _DEFAULT_EXPORT_LIMIT_MAX,
-                        "default": 2000,
+                        "maximum": export_limit_max,
+                        "default": export_limit_default,
                     },
                     "offset": {"type": "integer", "minimum": 0, "default": 0},
                 },
@@ -331,8 +362,8 @@ def build_tool_catalog() -> list[Tool]:
                     "limit": {
                         "type": "integer",
                         "minimum": 1,
-                        "maximum": _DEFAULT_AUDIT_EXPORT_LIMIT_MAX,
-                        "default": 200,
+                        "maximum": audit_export_limit_max,
+                        "default": audit_export_limit_default,
                     },
                     "offset": {"type": "integer", "minimum": 0, "default": 0},
                 },
@@ -479,6 +510,7 @@ async def _execute_tool(
             time_window_seconds=arguments.get("time_window_seconds"),
             limit=arguments.get("limit", 50),
             offset=arguments.get("offset", 0),
+            mode=arguments.get("mode", "fts"),
         )
         payload = json.dumps(logs, ensure_ascii=False, indent=2)
         return [TextContent(type="text", text=payload)]
@@ -627,8 +659,19 @@ def _protocol_error(message: str, data: Any | None = None) -> McpError:
     return McpError(ErrorData(code=INVALID_PARAMS, message=message, data=data))
 
 
-def _tool_by_name(name: str) -> Tool | None:
-    return next((tool for tool in build_tool_catalog() if tool.name == name), None)
+def _tool_by_name(name: str, catalog: list[Tool]) -> Tool | None:
+    return next((tool for tool in catalog if tool.name == name), None)
+
+
+def _apply_schema_defaults(
+    arguments: dict[str, Any],
+    schema: dict[str, Any],
+) -> dict[str, Any]:
+    with_defaults = dict(arguments)
+    for property_name, property_schema in schema.get("properties", {}).items():
+        if property_name not in with_defaults and "default" in property_schema:
+            with_defaults[property_name] = property_schema["default"]
+    return with_defaults
 
 
 class _RateLimiter:
@@ -659,11 +702,14 @@ def _tool_error_result(message: str) -> ServerResult:
 
 
 async def _handle_call_tool_request(
-    manager: SessionManager, request: CallToolRequest, rate_limiter: _RateLimiter
+    manager: SessionManager,
+    request: CallToolRequest,
+    rate_limiter: _RateLimiter,
+    tool_catalog: list[Tool],
 ) -> ServerResult:
     name = request.params.name
     arguments = request.params.arguments or {}
-    tool = _tool_by_name(name)
+    tool = _tool_by_name(name, tool_catalog)
     if tool is None:
         raise _protocol_error(f"Unknown tool: {name}", {"tool": name})
 
@@ -674,6 +720,7 @@ async def _handle_call_tool_request(
             f"Invalid arguments for tool {name}: {exc.message}",
             {"tool": name},
         ) from exc
+    arguments = _apply_schema_defaults(arguments, tool.inputSchema)
     if not rate_limiter.allow():
         return _tool_error_result("Rate limit exceeded for MCP tool calls")
 
@@ -684,6 +731,7 @@ def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
     manager = SessionManager(config)
     app = Server("embpilot", version=__version__)
     rate_limiter = _RateLimiter(config.tool_rate_limit_per_minute)
+    tool_catalog = build_tool_catalog(config)
 
     @app.list_resources()
     async def list_resources() -> list[Resource]:
@@ -721,10 +769,15 @@ def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
 
     @app.list_tools()
     async def list_tools() -> list[Tool]:
-        return build_tool_catalog()
+        return tool_catalog
 
     async def call_tool_handler(request: CallToolRequest) -> ServerResult:
-        return await _handle_call_tool_request(manager, request, rate_limiter)
+        return await _handle_call_tool_request(
+            manager,
+            request,
+            rate_limiter,
+            tool_catalog,
+        )
 
     app.request_handlers[CallToolRequest] = call_tool_handler
 

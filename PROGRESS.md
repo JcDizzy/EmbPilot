@@ -1,5 +1,31 @@
 # Progress
 
+## 2026-07-07 — release follow-up from third review
+
+### Done
+- Addressed release-blocking items from
+  `docs/EmbPilot_third_review_issues_recommendations.md`:
+  - `build_tool_catalog(config)` now reflects configured command timeout,
+    search, export, and audit export caps/defaults in MCP JSON Schemas
+  - `create_mcp_app()` builds one config-aware tool catalog and reuses it for
+    both `list_tools()` and call-tool validation
+  - `send_command` audit entries now redact common inline secrets in command
+    text, including AT Wi-Fi passwords, Bearer tokens, Authorization headers,
+    and password/token/secret key-value fragments
+  - `search_history_logs` now supports `mode="fts"` and
+    `mode="substring"` so users can choose full-text token search or literal
+    partial-token matching
+- Added focused regression coverage for config-aware schema validation,
+  command audit text redaction, and substring log search.
+
+### Deferred
+- Full `[rag]` clean install/import and temporary-directory ingest/search
+  smoke coverage still requires an environment that installs the optional
+  heavy RAG dependencies.
+- Strong human approval / elicitation is still a future client-integration
+  boundary; current protection remains explicit confirmation parameters plus
+  audit/rate/limit controls.
+
 ## 2026-07-07 — release hardening from second review
 
 ### Done
@@ -23,8 +49,6 @@
   Result: 90 passed.
 
 ### Deferred
-- Search mode `fts|substring` / fallback behavior remains a separate design
-  choice because it changes user-facing query semantics.
 - A full `[rag]` clean install/import test still requires an environment with
   the optional heavy dependencies installed.
 

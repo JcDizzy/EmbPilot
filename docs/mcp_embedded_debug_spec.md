@@ -15,9 +15,9 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **`reset_target(method, confirm)`**：复位目标板。当前仅支持 `reboot`（向设备发送 reboot 文本命令），且必须传入 `confirm=true`；DTR/RTS 引脚电平控制在 runtime 真正支持前不纳入公共接口，避免发布无法兑现的复位能力。
 * **`list_sessions()`**：列出所有已记录的会话（按时间倒序），含 `session_id`、接口、设备名、起止时间、状态等。
 * **`delete_session(session_id, confirm)`**：删除某个历史会话的数据库文件与索引记录。活动会话不可删除（须先 `disconnect_device`），且必须传入 `confirm=true`；删除路径必须位于 EmbPilot 托管的 session 数据目录内。
-* **`search_history_logs(session_id, keyword, ...)`**：在指定会话（活动或历史）的日志中按关键字搜索，可选 `time_window_seconds`（仅对活动会话有意义）。结果为 JSON。
+* **`search_history_logs(session_id, keyword, mode, ...)`**：在指定会话（活动或历史）的日志中按关键字搜索，可选 `time_window_seconds`（仅对活动会话有意义）。`mode` 默认为 `fts`，使用 SQLite FTS5 token/phrase 检索；也可传入 `substring` 做字面子串匹配，适配寄存器名、路径、错误码片段等 FTS 分词不直观的场景。结果为 JSON。
 * **`export_session(session_id, format, limit, ...)`**：导出指定会话的日志，`format` 支持 `text`/`json`，输出受 `limit`（默认 2000）封顶。
-* **`export_operation_history(session_id, limit, ...)`**：导出脱敏后的操作审计记录，支持按 session 过滤，敏感连接参数（如 password、key_file、token）不会原样返回。
+* **`export_operation_history(session_id, limit, ...)`**：导出脱敏后的操作审计记录，支持按 session 过滤。敏感连接参数（如 password、key_file、token）以及 `send_command` 中常见的内联密码/token/Authorization/Bearer/AT Wi-Fi 密码不会原样返回。
 * **`ingest_doc(text, source, metadata, doc_id)`**：向可选本地 RAG 库导入文档片段（需要安装 `embpilot[rag]`）。
 * **`search_docs(query, top_k, source)`**：检索 datasheet、error manual、troubleshooting KB 等本地文档，返回文本 JSON，同时在 MCP tool result 的 `structuredContent.results` 中提供可结构化引用的片段。
 * **`list_doc_sources()`**：列出本地 RAG 库中的文档来源。
@@ -60,7 +60,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **内存容量保护**：内存中的即时查看历史采用固定长度环形缓冲区（`collections.deque(maxlen=2000)`），旧数据自动溢出，海量历史完全交由本地数据库承载。
 * **诚实资源语义**：资源只暴露 runtime 当前能稳定提供的数据。`device://session_info` 描述当前会话事实，而不是伪造一个跨设备通用的 `sysinfo` 采集承诺。
 * **MCP 错误边界**：unknown tool、参数 schema 不合法、unknown resource URI 属于协议错误，返回标准 JSON-RPC error；工具运行期间的业务失败（如未连接设备、历史 session 不存在）保留在 tool result 中并标记 `isError: true`。
-* **操作安全边界**：MCP tool 调用有滑动窗口 rate limit；`send_command` 超时、搜索结果、日志导出和审计导出都有配置上限；危险命令和删除历史会话必须显式确认。
+* **操作安全边界**：MCP tool 调用有滑动窗口 rate limit；`send_command` 超时、搜索结果、日志导出和审计导出都有配置上限，且 MCP tool schema 会按当前 `EmbPilotConfig` 生成对应 maximum；危险命令和删除历史会话必须显式确认。
 * **文件删除边界**：session 删除和 retention cleanup 同时处理 `.db`、`-wal`、`-shm`，且每个目标路径都必须位于 EmbPilot 托管的 session 目录内。
 
 ---
@@ -102,7 +102,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 
 ### 1. 过滤与拦截策略
 * **本地 Expect 拦截**：AI 通过 `send_command` 查参数时，runtime 为该条命令打开独立窗口；匹配到指定正则后立即停止该窗口收集，仅返回命令窗口内捕获的输出。
-* **结构化切片与搜索**：提供 `search_history_logs(keyword, time_window)` 工具。服务器在本地执行 SQLite FTS5 全文检索，仅将匹配到的核心上下文（如报错前后的 50 行）打包提交给 AI。
+* **结构化切片与搜索**：提供 `search_history_logs(keyword, time_window, mode)` 工具。服务器默认在本地执行 SQLite FTS5 全文检索，仅将匹配到的核心上下文打包提交给 AI；当用户/agent 需要按字面片段查找寄存器名、路径或错误码子串时，可切换到 `mode="substring"`。
 
 ### 2. 本地知识库并联 (Vector DB)
 * 引入轻量化本地向量数据库（如 `Chroma` 或 `LanceDB`），利用本地小模型（如 `bge-m3`）进行文本向量化。

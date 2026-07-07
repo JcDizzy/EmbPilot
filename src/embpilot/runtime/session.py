@@ -14,7 +14,7 @@ from embpilot.drivers.base import BaseDevice
 from embpilot.runtime.expect import ExpectManager
 from embpilot.runtime.models import LogLine, RingBuffer, SessionInfo
 from embpilot.runtime.pipeline import DbSink, LogProducer, RingBufferSink, SessionDispatcher
-from embpilot.core.safety import is_dangerous_command
+from embpilot.core.safety import is_dangerous_command, redact_command_text
 
 
 def build_device(interface_type: str, config: dict[str, Any]) -> BaseDevice:
@@ -186,7 +186,7 @@ class SessionManager:
                     action_type="call_tool",
                     detail={
                         "tool": "send_command",
-                        "command": command,
+                        "command": redact_command_text(command),
                         "expect": expect_regex,
                         "line_ending": line_ending,
                         "dangerous": dangerous,
@@ -337,6 +337,7 @@ class SessionManager:
         time_window_seconds: int | None = None,
         limit: int = 50,
         offset: int = 0,
+        mode: str = "fts",
     ) -> list[dict[str, Any]]:
         if limit > self._config.search_limit_max:
             raise ValueError(
@@ -344,7 +345,13 @@ class SessionManager:
             )
         await self._flush_active_sink(session_id)
         async with self._open_session_db(session_id) as db:
-            return await db.search_logs(keyword, time_window_seconds, limit, offset)
+            return await db.search_logs(
+                keyword,
+                time_window_seconds,
+                limit,
+                offset,
+                mode=mode,
+            )
 
     async def export_session(
         self,

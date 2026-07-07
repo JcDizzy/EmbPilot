@@ -25,6 +25,35 @@ _DANGEROUS_COMMAND_PATTERNS = [
     re.compile(r"^\s*(?:flash_erase|erase_flash|factory_reset)(?:\s|$)", re.IGNORECASE),
 ]
 
+_COMMAND_REDACTIONS = [
+    (
+        re.compile(r'(?i)(AT\+CWJAP="[^"]*",)"[^"]*"'),
+        r'\1"***REDACTED***"',
+    ),
+    (
+        re.compile(r"(?i)\b(Bearer)\s+[A-Za-z0-9._~+/=-]+"),
+        r"\1 ***REDACTED***",
+    ),
+    (
+        re.compile(
+            r"(?i)\b(password|passwd|token|secret)\s*([:=])\s*"
+            r"(\"[^\"]*\"|'[^']*'|[^\s;]+)"
+        ),
+        r"\1\2***REDACTED***",
+    ),
+    (
+        re.compile(
+            r"(?i)\b(password|passwd|token|secret)(\s+)"
+            r"(\"[^\"]*\"|'[^']*'|[^\s;]+)"
+        ),
+        r"\1\2***REDACTED***",
+    ),
+    (
+        re.compile(r"(?i)\b(authorization)\s*([:=])\s*[^\r\n;]+"),
+        r"\1\2***REDACTED***",
+    ),
+]
+
 
 def redact_sensitive(value: Any) -> Any:
     if isinstance(value, dict):
@@ -38,6 +67,13 @@ def redact_sensitive(value: Any) -> Any:
     if isinstance(value, list):
         return [redact_sensitive(item) for item in value]
     return value
+
+
+def redact_command_text(command: str) -> str:
+    redacted = command
+    for pattern, replacement in _COMMAND_REDACTIONS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
 
 
 def is_dangerous_command(command: str) -> bool:

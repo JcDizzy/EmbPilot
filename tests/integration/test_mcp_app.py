@@ -161,6 +161,62 @@ def test_send_command_schema_exposes_line_ending_strategy() -> None:
     assert tool.inputSchema["properties"]["confirm_dangerous_command"]["default"] is False
 
 
+def test_configured_limits_are_reflected_in_tool_schema(tmp_path: Path) -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    config = build_config(tmp_path)
+    config.command_timeout_max_ms = 12_345
+    config.search_limit_max = 123
+    config.export_limit_max = 456
+    config.audit_export_limit_max = 789
+
+    tools = {tool.name: tool for tool in build_tool_catalog(config)}
+
+    assert (
+        tools["send_command"].inputSchema["properties"]["timeout_ms"]["maximum"]
+        == 12_345
+    )
+    assert (
+        tools["search_history_logs"].inputSchema["properties"]["limit"]["maximum"]
+        == 123
+    )
+    assert tools["export_session"].inputSchema["properties"]["limit"]["maximum"] == 456
+    assert (
+        tools["export_operation_history"].inputSchema["properties"]["limit"]["maximum"]
+        == 789
+    )
+
+
+def test_configured_limits_cap_tool_schema_defaults(tmp_path: Path) -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    config = build_config(tmp_path)
+    config.command_timeout_max_ms = 100
+    config.search_limit_max = 2
+    config.export_limit_max = 3
+    config.audit_export_limit_max = 4
+
+    tools = {tool.name: tool for tool in build_tool_catalog(config)}
+
+    assert tools["send_command"].inputSchema["properties"]["timeout_ms"]["default"] == 100
+    assert tools["search_history_logs"].inputSchema["properties"]["limit"]["default"] == 2
+    assert tools["export_session"].inputSchema["properties"]["limit"]["default"] == 3
+    assert (
+        tools["export_operation_history"].inputSchema["properties"]["limit"]["default"]
+        == 4
+    )
+
+
+def test_search_history_logs_schema_exposes_search_mode() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    tool = next(t for t in build_tool_catalog() if t.name == "search_history_logs")
+    mode_schema = tool.inputSchema["properties"]["mode"]
+
+    assert mode_schema["default"] == "fts"
+    assert mode_schema["enum"] == ["fts", "substring"]
+
+
 def test_tool_schemas_reject_extra_properties() -> None:
     from embpilot.mcp_app import build_tool_catalog
 
@@ -267,6 +323,58 @@ def test_call_tool_handler_rejects_invalid_rag_doc_id(tmp_path: Path) -> None:
 
         assert exc_info.value.error.code == types.INVALID_PARAMS
         assert "Invalid arguments" in exc_info.value.error.message
+
+    asyncio.run(scenario())
+
+
+def test_call_tool_handler_uses_configured_schema_limits(tmp_path: Path) -> None:
+    from embpilot.mcp_app import create_mcp_app
+
+    async def scenario() -> None:
+        config = build_config(tmp_path)
+        config.export_limit_max = 2
+        app, manager = create_mcp_app(config)
+        await manager.start()
+        try:
+            request = types.CallToolRequest(
+                params=types.CallToolRequestParams(
+                    name="export_session",
+                    arguments={"session_id": "missing", "limit": 3},
+                )
+            )
+            with pytest.raises(McpError) as exc_info:
+                await app.request_handlers[types.CallToolRequest](request)
+        finally:
+            await manager.shutdown()
+
+        assert exc_info.value.error.code == types.INVALID_PARAMS
+        assert "Invalid arguments" in exc_info.value.error.message
+
+    asyncio.run(scenario())
+
+
+def test_call_tool_handler_applies_configured_schema_defaults(tmp_path: Path) -> None:
+    from embpilot.mcp_app import create_mcp_app
+
+    async def scenario() -> None:
+        config = build_config(tmp_path)
+        config.export_limit_max = 2
+        app, manager = create_mcp_app(config)
+        await manager.start()
+        try:
+            request = types.CallToolRequest(
+                params=types.CallToolRequestParams(
+                    name="export_session",
+                    arguments={"session_id": "missing"},
+                )
+            )
+            result = await app.request_handlers[types.CallToolRequest](request)
+        finally:
+            await manager.shutdown()
+
+        assert result.root.isError is True
+        assert "limit exceeds" not in result.root.content[0].text
+        assert "Session not found" in result.root.content[0].text
 
     asyncio.run(scenario())
 
