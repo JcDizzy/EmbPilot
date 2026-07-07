@@ -16,7 +16,7 @@
 - MCP Server integration with 8 tools, 3 resources, 2 prompts:
   - Tools: connect_device, send_command (with expect_regex), reset_target (reboot only),
     disconnect_device, list_sessions, delete_session, search_history_logs, export_session
-  - Resources: device://live_log (subscribable), device://session_info, device://analytics
+  - Resources: device://live_log (snapshot), device://session_info, device://analytics
   - Prompts: analyze_crash_log, hardware_sanity_check
 - Session lifecycle management (auto-disconnect on reconnect, auto-cleanup on startup)
 - Retention policy: configurable max_days (30) + max_gb (5) with auto-cleanup
@@ -66,3 +66,5 @@
 - doctor diagnostics: added `embpilot doctor` (src/embpilot/doctor.py) and a `doctor` CLI subcommand reporting version/Python/platform, core and optional-RAG dependency status, drivers, sqlite, writable data dir, and detected serial ports; exits 0 if all required checks pass else 1.
 [2026-07-07]
 - P0 transport contract: standardized runtime drivers around a bytes contract while adapting Telnet/SSH text-mode streams internally, removed the fixed SSH `bash` shell command, added `send_command` line-ending strategies (`as-is`/`none`/`lf`/`crlf`/`cr`) through runtime and MCP schema, and added fake Telnet/SSH server integration coverage plus line-ending regressions.
+[2026-07-07]
+- P1 MCP contract: tightened tool JSON Schemas, returned tool execution failures as `CallToolResult(isError=True)`, converted unknown tool and invalid arguments into JSON-RPC protocol errors, converted unknown resources into `Resource not found` protocol errors using `-32602`, and removed the live-log subscribe handler until update notifications are implemented.

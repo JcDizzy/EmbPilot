@@ -5,16 +5,23 @@ import json
 import logging
 from typing import Any, Optional
 
+import jsonschema
 from pydantic import AnyUrl
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import McpError
 from mcp.types import (
+    CallToolRequest,
+    CallToolResult,
+    ErrorData,
     GetPromptResult,
+    INVALID_PARAMS,
     Prompt,
     PromptArgument,
     PromptMessage,
     Resource,
+    ServerResult,
     TextContent,
     Tool,
 )
@@ -41,7 +48,7 @@ def build_resource_catalog() -> list[Resource]:
         Resource(
             uri=AnyUrl("device://live_log"),
             name="Live Device Log",
-            description="Recent 2000 lines of device output from the active session (subscribable)",
+            description="Recent 2000 lines of device output from the active session",
             mimeType="text/plain",
         ),
         Resource(
@@ -60,6 +67,50 @@ def build_resource_catalog() -> list[Resource]:
 
 
 def build_tool_catalog() -> list[Tool]:
+    device_name_schema = {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional user/agent supplied device name for session labeling.",
+    }
+    serial_config_schema = {
+        "type": "object",
+        "properties": {
+            "port": {"type": "string", "minLength": 1},
+            "baudrate": {"type": "integer", "minimum": 1, "default": 115200},
+            "bytesize": {"type": "integer", "enum": [5, 6, 7, 8], "default": 8},
+            "parity": {"type": "string", "enum": ["N", "E", "O", "M", "S"], "default": "N"},
+            "stopbits": {"type": "number", "enum": [1, 1.5, 2], "default": 1},
+            "timeout": {"type": "number", "minimum": 0, "default": 5.0},
+            "device_name": device_name_schema,
+        },
+        "required": ["port"],
+        "additionalProperties": False,
+    }
+    telnet_config_schema = {
+        "type": "object",
+        "properties": {
+            "host": {"type": "string", "minLength": 1},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 23},
+            "timeout": {"type": "number", "minimum": 0, "default": 10.0},
+            "device_name": device_name_schema,
+        },
+        "required": ["host"],
+        "additionalProperties": False,
+    }
+    ssh_config_schema = {
+        "type": "object",
+        "properties": {
+            "host": {"type": "string", "minLength": 1},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 22},
+            "username": {"type": "string", "default": ""},
+            "password": {"type": "string"},
+            "key_file": {"type": "string", "minLength": 1},
+            "known_hosts": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "device_name": device_name_schema,
+        },
+        "required": ["host"],
+        "additionalProperties": False,
+    }
     return [
         Tool(
             name="connect_device",
@@ -80,6 +131,21 @@ def build_tool_catalog() -> list[Tool]:
                     },
                 },
                 "required": ["interface_type", "config"],
+                "additionalProperties": False,
+                "allOf": [
+                    {
+                        "if": {"properties": {"interface_type": {"const": "serial"}}},
+                        "then": {"properties": {"config": serial_config_schema}},
+                    },
+                    {
+                        "if": {"properties": {"interface_type": {"const": "telnet"}}},
+                        "then": {"properties": {"config": telnet_config_schema}},
+                    },
+                    {
+                        "if": {"properties": {"interface_type": {"const": "ssh"}}},
+                        "then": {"properties": {"config": ssh_config_schema}},
+                    },
+                ],
             },
         ),
         Tool(
@@ -98,6 +164,7 @@ def build_tool_catalog() -> list[Tool]:
                     },
                     "timeout_ms": {
                         "type": "integer",
+                        "minimum": 1,
                         "default": 5000,
                     },
                     "line_ending": {
@@ -111,6 +178,7 @@ def build_tool_catalog() -> list[Tool]:
                     },
                 },
                 "required": ["command"],
+                "additionalProperties": False,
             },
         ),
         Tool(
@@ -128,6 +196,7 @@ def build_tool_catalog() -> list[Tool]:
                     },
                 },
                 "required": [],
+                "additionalProperties": False,
             },
         ),
         Tool(
@@ -136,6 +205,7 @@ def build_tool_catalog() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {},
+                "additionalProperties": False,
             },
         ),
         Tool(
@@ -144,6 +214,7 @@ def build_tool_catalog() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {},
+                "additionalProperties": False,
             },
         ),
         Tool(
@@ -155,9 +226,10 @@ def build_tool_catalog() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {"type": "string"},
+                    "session_id": {"type": "string", "minLength": 1},
                 },
                 "required": ["session_id"],
+                "additionalProperties": False,
             },
         ),
         Tool(
@@ -169,16 +241,18 @@ def build_tool_catalog() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {"type": "string"},
-                    "keyword": {"type": "string"},
+                    "session_id": {"type": "string", "minLength": 1},
+                    "keyword": {"type": "string", "minLength": 1},
                     "time_window_seconds": {
                         "type": "integer",
+                        "minimum": 1,
                         "description": "Optional: restrict to the last N seconds.",
                     },
-                    "limit": {"type": "integer", "default": 50},
-                    "offset": {"type": "integer", "default": 0},
+                    "limit": {"type": "integer", "minimum": 1, "default": 50},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0},
                 },
                 "required": ["session_id", "keyword"],
+                "additionalProperties": False,
             },
         ),
         Tool(
@@ -190,16 +264,17 @@ def build_tool_catalog() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "session_id": {"type": "string"},
+                    "session_id": {"type": "string", "minLength": 1},
                     "format": {
                         "type": "string",
                         "enum": ["text", "json"],
                         "default": "text",
                     },
-                    "limit": {"type": "integer", "default": 2000},
-                    "offset": {"type": "integer", "default": 0},
+                    "limit": {"type": "integer", "minimum": 1, "default": 2000},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0},
                 },
                 "required": ["session_id"],
+                "additionalProperties": False,
             },
         ),
     ]
@@ -207,65 +282,71 @@ def build_tool_catalog() -> list[Tool]:
 
 async def dispatch_tool(
     manager: SessionManager, name: str, arguments: dict[str, Any]
-) -> list[TextContent]:
+) -> CallToolResult:
     try:
-        if name == "connect_device":
-            session_id = await manager.connect_device(
-                interface_type=arguments["interface_type"],
-                config=arguments.get("config") or {},
-            )
-            return [TextContent(type="text", text=f"Connected. session_id={session_id}")]
-        if name == "send_command":
-            output = await manager.send_command(
-                command=arguments["command"],
-                expect_regex=arguments.get("expect_regex"),
-                timeout_ms=arguments.get("timeout_ms", 5000),
-                line_ending=arguments.get("line_ending", "as-is"),
-            )
-            return [TextContent(type="text", text=output)]
-        if name == "reset_target":
-            message = await manager.reset_target(
-                method=arguments.get("method", "reboot")
-            )
-            return [TextContent(type="text", text=message)]
-        if name == "disconnect_device":
-            await manager.disconnect_device()
-            return [TextContent(type="text", text="Disconnected.")]
-        if name == "list_sessions":
-            sessions = await manager.list_sessions()
-            payload = json.dumps(sessions, ensure_ascii=False, indent=2)
-            return [TextContent(type="text", text=payload)]
-        if name == "delete_session":
-            await manager.delete_session(session_id=arguments["session_id"])
-            return [
-                TextContent(
-                    type="text", text=f"Deleted session {arguments['session_id']!r}."
-                )
-            ]
-        if name == "search_history_logs":
-            logs = await manager.search_session_logs(
-                session_id=arguments["session_id"],
-                keyword=arguments["keyword"],
-                time_window_seconds=arguments.get("time_window_seconds"),
-                limit=arguments.get("limit", 50),
-                offset=arguments.get("offset", 0),
-            )
-            payload = json.dumps(logs, ensure_ascii=False, indent=2)
-            return [TextContent(type="text", text=payload)]
-        if name == "export_session":
-            text = await manager.export_session(
-                session_id=arguments["session_id"],
-                fmt=arguments.get("format", "text"),
-                limit=arguments.get("limit", 2000),
-                offset=arguments.get("offset", 0),
-            )
-            return [TextContent(type="text", text=text)]
-        return [
-            TextContent(type="text", text=f"Error: unknown tool {name!r}")
-        ]
-    except Exception as exc:  # noqa: BLE001 — surface tool failures to the client
+        content = await _execute_tool(manager, name, arguments)
+    except Exception as exc:  # noqa: BLE001 — tool execution errors stay in result space
         logger.exception("Tool %s failed", name)
-        return [TextContent(type="text", text=f"Error: {exc}")]
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"Error: {exc}")],
+            isError=True,
+        )
+    return CallToolResult(content=content, isError=False)
+
+
+async def _execute_tool(
+    manager: SessionManager, name: str, arguments: dict[str, Any]
+) -> list[TextContent]:
+    if name == "connect_device":
+        session_id = await manager.connect_device(
+            interface_type=arguments["interface_type"],
+            config=arguments.get("config") or {},
+        )
+        return [TextContent(type="text", text=f"Connected. session_id={session_id}")]
+    if name == "send_command":
+        output = await manager.send_command(
+            command=arguments["command"],
+            expect_regex=arguments.get("expect_regex"),
+            timeout_ms=arguments.get("timeout_ms", 5000),
+            line_ending=arguments.get("line_ending", "as-is"),
+        )
+        return [TextContent(type="text", text=output)]
+    if name == "reset_target":
+        message = await manager.reset_target(method=arguments.get("method", "reboot"))
+        return [TextContent(type="text", text=message)]
+    if name == "disconnect_device":
+        await manager.disconnect_device()
+        return [TextContent(type="text", text="Disconnected.")]
+    if name == "list_sessions":
+        sessions = await manager.list_sessions()
+        payload = json.dumps(sessions, ensure_ascii=False, indent=2)
+        return [TextContent(type="text", text=payload)]
+    if name == "delete_session":
+        await manager.delete_session(session_id=arguments["session_id"])
+        return [
+            TextContent(
+                type="text", text=f"Deleted session {arguments['session_id']!r}."
+            )
+        ]
+    if name == "search_history_logs":
+        logs = await manager.search_session_logs(
+            session_id=arguments["session_id"],
+            keyword=arguments["keyword"],
+            time_window_seconds=arguments.get("time_window_seconds"),
+            limit=arguments.get("limit", 50),
+            offset=arguments.get("offset", 0),
+        )
+        payload = json.dumps(logs, ensure_ascii=False, indent=2)
+        return [TextContent(type="text", text=payload)]
+    if name == "export_session":
+        text = await manager.export_session(
+            session_id=arguments["session_id"],
+            fmt=arguments.get("format", "text"),
+            limit=arguments.get("limit", 2000),
+            offset=arguments.get("offset", 0),
+        )
+        return [TextContent(type="text", text=text)]
+    raise ValueError(f"Unknown tool: {name}")
 
 
 def build_prompt_catalog() -> list[Prompt]:
@@ -302,8 +383,8 @@ def render_prompt(name: str, arguments: dict[str, Any]) -> str:
     if name == "analyze_crash_log":
         context = (arguments.get("context") or "").strip()
         body = (
-            "You are an embedded debugging assistant. Read the live device log via the "
-            "device://live_log resource (or subscribe for updates) and look for crash "
+            "You are an embedded debugging assistant. Read the live device log snapshot "
+            "via the device://live_log resource and look for crash "
             "signatures, panics, hangs, or unexpected reboots. Form a root-cause "
             "hypothesis and propose the next diagnostic commands to send via send_command."
         )
@@ -330,6 +411,34 @@ def _prompt_result(name: str, text: str) -> GetPromptResult:
             PromptMessage(role="user", content=TextContent(type="text", text=text)),
         ],
     )
+
+
+def _protocol_error(message: str, data: Any | None = None) -> McpError:
+    return McpError(ErrorData(code=INVALID_PARAMS, message=message, data=data))
+
+
+def _tool_by_name(name: str) -> Tool | None:
+    return next((tool for tool in build_tool_catalog() if tool.name == name), None)
+
+
+async def _handle_call_tool_request(
+    manager: SessionManager, request: CallToolRequest
+) -> ServerResult:
+    name = request.params.name
+    arguments = request.params.arguments or {}
+    tool = _tool_by_name(name)
+    if tool is None:
+        raise _protocol_error(f"Unknown tool: {name}", {"tool": name})
+
+    try:
+        jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+    except jsonschema.ValidationError as exc:
+        raise _protocol_error(
+            f"Invalid arguments for tool {name}: {exc.message}",
+            {"tool": name},
+        ) from exc
+
+    return ServerResult(await dispatch_tool(manager, name, arguments))
 
 
 def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
@@ -365,19 +474,19 @@ def create_mcp_app(config: EmbPilotConfig) -> tuple[Server, SessionManager]:
         if uri_text == "device://analytics":
             analytics = await manager.get_analytics()
             return json.dumps(analytics, ensure_ascii=False, indent=2)
-        return f"Unknown resource: {uri_text}"
-
-    @app.subscribe_resource()
-    async def subscribe_resource(uri: AnyUrl) -> None:
-        logger.info("Client subscribed to %s", uri)
+        raise _protocol_error(
+            "Resource not found",
+            {"uri": uri_text},
+        )
 
     @app.list_tools()
     async def list_tools() -> list[Tool]:
         return build_tool_catalog()
 
-    @app.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        return await dispatch_tool(manager, name, arguments)
+    async def call_tool_handler(request: CallToolRequest) -> ServerResult:
+        return await _handle_call_tool_request(manager, request)
+
+    app.request_handlers[CallToolRequest] = call_tool_handler
 
     @app.list_prompts()
     async def list_prompts() -> list[Prompt]:

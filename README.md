@@ -32,7 +32,8 @@ environment diagnostics (Python, core/RAG deps, drivers, storage, serial ports).
 Current resource direction:
 
 - `device://live_log` exposes the active session's recent log snapshot and is
-  the resource URI used for live-log subscriptions.
+  currently a snapshot resource. EmbPilot does not advertise subscriptions
+  until it sends MCP `notifications/resources/updated` events.
 - `device://session_info` exposes honest session metadata for the current
   connection instead of pretending EmbPilot can issue one generic sysinfo probe
   across all targets.

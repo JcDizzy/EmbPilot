@@ -19,7 +19,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **`export_session(session_id, format, limit, ...)`**：导出指定会话的日志，`format` 支持 `text`/`json`，输出受 `limit`（默认 2000）封顶。
 
 ### 2. Resources (AI 可读取的数据源)
-* **`device://live_log`**：实时日志流，支持 AI 客户端通过 `resources/subscribe` 机制动态监听物理设备的输出。
+* **`device://live_log`**：活动会话最近日志快照。当前实现不注册 `resources/subscribe`，避免在尚未发送 `notifications/resources/updated` 的情况下宣称支持动态订阅。
 * **`device://session_info`**：会话元数据快照。返回当前连接的 `session_id`、接口类型、设备名、连接摘要、启动时间、状态、最近日志时间、日志计数等运行时真实信息。这里不再假设 EmbPilot 能对所有嵌入式目标统一发起一组“通用 sysinfo 探测命令”。
 * **`device://analytics`**：基于本地数据库的异常聚合统计。返回当前活动会话中错误类日志（error/fail/panic/fault 等）的频次聚合表，避免 AI 检索海量原始文本。无活动会话时返回空数组。
 
@@ -53,6 +53,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **宿主机绝对时间戳同步**：所有进入队列的日志行统一附加 `[YYYY-MM-DD HH:MM:SS.SSS]` 前缀，用以对齐 AI 动作与硬件异动的因果关系。
 * **内存容量保护**：内存中的即时查看历史采用固定长度环形缓冲区（`collections.deque(maxlen=2000)`），旧数据自动溢出，海量历史完全交由本地数据库承载。
 * **诚实资源语义**：资源只暴露 runtime 当前能稳定提供的数据。`device://session_info` 描述当前会话事实，而不是伪造一个跨设备通用的 `sysinfo` 采集承诺。
+* **MCP 错误边界**：unknown tool、参数 schema 不合法、unknown resource URI 属于协议错误，返回标准 JSON-RPC error；工具运行期间的业务失败（如未连接设备、历史 session 不存在）保留在 tool result 中并标记 `isError: true`。
 
 ---
 

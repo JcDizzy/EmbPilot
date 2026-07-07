@@ -1,5 +1,34 @@
 # Progress
 
+## 2026-07-07 — P1 MCP contract hardening
+
+### Done
+- Tightened MCP tool input schemas:
+  - added `additionalProperties: false` across tools
+  - added interface-specific `connect_device.config` schemas for serial,
+    telnet, and ssh
+  - added min/max constraints for ports, limits, offsets, time windows, and
+    non-empty identifiers where appropriate
+- Reworked tool dispatch to return `CallToolResult` directly so business
+  failures are represented as `isError: true` rather than plain success text.
+- Replaced the Python SDK default `@app.call_tool` handler with a custom
+  `CallToolRequest` handler so unknown tools and malformed arguments raise
+  JSON-RPC protocol errors (`INVALID_PARAMS` / `-32602`).
+- Changed unknown resource reads to raise `McpError(ErrorData(code=-32602,
+  message="Resource not found", data={"uri": ...}))`, aligned with current MCP
+  SEP-2164 guidance.
+- Removed the live-log subscribe handler and updated resource descriptions so
+  `device://live_log` is advertised honestly as a snapshot resource until
+  EmbPilot actually emits `notifications/resources/updated`.
+- Verified focused MCP contract coverage with:
+  `.\.venv\Scripts\python.exe -m pytest tests\integration\test_mcp_app.py -q`
+  Result: 23 passed.
+
+### Next good step
+- Continue P1 safety/operation boundaries: dangerous command confirmation,
+  audit export, rate limits, timeout/export caps, DB deletion path checks, and
+  sensitive config redaction.
+
 ## 2026-07-07 — P0 real transport contract hardening
 
 ### Done
@@ -27,9 +56,7 @@
   fake serial port integration test in this pass.
 
 ### Next good step
-- Continue with P1 MCP protocol contract hardening: standard tool errors,
-  unknown tool/resource protocol errors, JSON Schema tightening, and either real
-  resource update notifications or removing the current subscribable wording.
+- Continue with P1 MCP protocol contract hardening and operation safety.
 
 ## 2026-07-02 — packaging: optional RAG + doctor
 

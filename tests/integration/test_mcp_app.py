@@ -4,6 +4,7 @@ import asyncio
 import pytest
 from pathlib import Path
 
+from mcp.shared.exceptions import McpError
 from mcp import types
 
 from embpilot.config import EmbPilotConfig
@@ -55,7 +56,6 @@ def test_create_mcp_app_registers_all_handlers(tmp_path: Path) -> None:
 
     assert types.ListResourcesRequest in app.request_handlers
     assert types.ReadResourceRequest in app.request_handlers
-    assert types.SubscribeRequest in app.request_handlers
     assert types.ListToolsRequest in app.request_handlers
     assert types.CallToolRequest in app.request_handlers
     assert types.ListPromptsRequest in app.request_handlers
@@ -129,6 +129,14 @@ def test_send_command_schema_exposes_line_ending_strategy() -> None:
     assert line_ending_schema["enum"] == ["as-is", "none", "lf", "crlf", "cr"]
 
 
+def test_tool_schemas_reject_extra_properties() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    tools = build_tool_catalog()
+
+    assert all(tool.inputSchema.get("additionalProperties") is False for tool in tools)
+
+
 def test_reset_target_schema_excludes_dtr_and_rts() -> None:
     from embpilot.mcp_app import build_tool_catalog
 
@@ -136,6 +144,76 @@ def test_reset_target_schema_excludes_dtr_and_rts() -> None:
     method_schema = tool.inputSchema["properties"]["method"]
 
     assert method_schema.get("enum") == ["reboot"]
+
+
+def test_call_tool_handler_unknown_tool_raises_protocol_error(tmp_path: Path) -> None:
+    from embpilot.mcp_app import create_mcp_app
+
+    async def scenario() -> None:
+        app, manager = create_mcp_app(build_config(tmp_path))
+        await manager.start()
+        try:
+            request = types.CallToolRequest(
+                params=types.CallToolRequestParams(
+                    name="no_such_tool",
+                    arguments={},
+                )
+            )
+            with pytest.raises(McpError) as exc_info:
+                await app.request_handlers[types.CallToolRequest](request)
+        finally:
+            await manager.shutdown()
+
+        assert exc_info.value.error.code == types.INVALID_PARAMS
+        assert "Unknown tool" in exc_info.value.error.message
+
+    asyncio.run(scenario())
+
+
+def test_call_tool_handler_invalid_arguments_raises_protocol_error(tmp_path: Path) -> None:
+    from embpilot.mcp_app import create_mcp_app
+
+    async def scenario() -> None:
+        app, manager = create_mcp_app(build_config(tmp_path))
+        await manager.start()
+        try:
+            request = types.CallToolRequest(
+                params=types.CallToolRequestParams(
+                    name="send_command",
+                    arguments={"command": "status", "unexpected": True},
+                )
+            )
+            with pytest.raises(McpError) as exc_info:
+                await app.request_handlers[types.CallToolRequest](request)
+        finally:
+            await manager.shutdown()
+
+        assert exc_info.value.error.code == types.INVALID_PARAMS
+        assert "Invalid arguments" in exc_info.value.error.message
+
+    asyncio.run(scenario())
+
+
+def test_read_resource_unknown_uri_raises_resource_not_found(tmp_path: Path) -> None:
+    from embpilot.mcp_app import create_mcp_app
+
+    async def scenario() -> None:
+        app, manager = create_mcp_app(build_config(tmp_path))
+        await manager.start()
+        try:
+            request = types.ReadResourceRequest(
+                params=types.ReadResourceRequestParams(uri="device://missing")
+            )
+            with pytest.raises(McpError) as exc_info:
+                await app.request_handlers[types.ReadResourceRequest](request)
+        finally:
+            await manager.shutdown()
+
+        assert exc_info.value.error.code == types.INVALID_PARAMS
+        assert exc_info.value.error.message == "Resource not found"
+        assert exc_info.value.error.data == {"uri": "device://missing"}
+
+    asyncio.run(scenario())
 
 
 def test_dispatch_tool_unknown_returns_error_text(tmp_path: Path) -> None:
@@ -149,9 +227,10 @@ def test_dispatch_tool_unknown_returns_error_text(tmp_path: Path) -> None:
         finally:
             await manager.shutdown()
 
-        assert len(result) == 1
-        assert isinstance(result[0], types.TextContent)
-        assert "unknown tool" in result[0].text.lower()
+        assert result.isError is True
+        assert len(result.content) == 1
+        assert isinstance(result.content[0], types.TextContent)
+        assert "unknown tool" in result.content[0].text.lower()
 
     asyncio.run(scenario())
 
@@ -167,9 +246,10 @@ def test_dispatch_tool_send_command_without_connection_returns_error(tmp_path: P
         finally:
             await manager.shutdown()
 
-        assert len(result) == 1
-        assert isinstance(result[0], types.TextContent)
-        assert "error" in result[0].text.lower()
+        assert result.isError is True
+        assert len(result.content) == 1
+        assert isinstance(result.content[0], types.TextContent)
+        assert "error" in result.content[0].text.lower()
 
     asyncio.run(scenario())
 
@@ -243,9 +323,10 @@ def test_dispatch_tool_list_sessions_returns_json(tmp_path: Path) -> None:
         finally:
             await manager.shutdown()
 
-        assert len(result) == 1
-        assert isinstance(result[0], types.TextContent)
-        assert result[0].text.strip().startswith("[")
+        assert result.isError is False
+        assert len(result.content) == 1
+        assert isinstance(result.content[0], types.TextContent)
+        assert result.content[0].text.strip().startswith("[")
 
     asyncio.run(scenario())
 
@@ -261,8 +342,9 @@ def test_dispatch_tool_delete_session_without_id_returns_error(tmp_path: Path) -
         finally:
             await manager.shutdown()
 
-        assert len(result) == 1
-        assert "error" in result[0].text.lower()
+        assert result.isError is True
+        assert len(result.content) == 1
+        assert "error" in result.content[0].text.lower()
 
     asyncio.run(scenario())
 
@@ -280,7 +362,8 @@ def test_dispatch_tool_export_unknown_session_returns_error(tmp_path: Path) -> N
         finally:
             await manager.shutdown()
 
-        assert len(result) == 1
-        assert "error" in result[0].text.lower()
+        assert result.isError is True
+        assert len(result.content) == 1
+        assert "error" in result.content[0].text.lower()
 
     asyncio.run(scenario())
