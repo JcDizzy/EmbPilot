@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,7 +21,7 @@ from typing import Any, Optional
 import aiosqlite
 
 from embpilot.runtime.models import LogLine
-from embpilot.runtime.safety import ensure_path_within, redact_sensitive
+from embpilot.core.safety import ensure_path_within, redact_sensitive
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,37 @@ _schema_session: str = (Path(__file__).parent / "schema_session.sql").read_text(
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.") + \
            f"{datetime.now(timezone.utc).microsecond // 1000:03d}"
+
+
+def _session_file_size(db_path: str) -> int:
+    base = Path(db_path)
+    total = 0
+    for path in (base, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
+        if path.exists():
+            total += path.stat().st_size
+    return total
+
+
+def _infer_log_level(text: str) -> str:
+    lowered = text.lower()
+    if any(marker in lowered for marker in ("panic", "hardfault", "fault", "fatal")):
+        return "critical"
+    if "error" in lowered or "fail" in lowered:
+        return "error"
+    if "warn" in lowered:
+        return "warning"
+    if "debug" in lowered:
+        return "debug"
+    return "info"
+
+
+def _infer_log_tag(text: str) -> str | None:
+    match = re.match(r"^\s*\[([A-Za-z0-9_.:-]{1,64})\]", text)
+    return match.group(1) if match else None
+
+
+def _fts_phrase(keyword: str) -> str:
+    return '"' + keyword.replace('"', '""') + '"'
 
 
 # ── MainDatabase ─────────────────────────────────────────────────────────────
@@ -95,9 +127,7 @@ class MainDatabase:
         row = await cursor.fetchone()
         file_size = 0
         if row:
-            p = Path(row["db_path"])
-            if p.exists():
-                file_size = p.stat().st_size
+            file_size = _session_file_size(row["db_path"])
 
         await self._conn.execute(
             "UPDATE sessions SET ended_at=?, status='closed', file_size=? "
@@ -234,7 +264,7 @@ class MainDatabase:
         )
         remaining = await cursor.fetchall()
         for row in remaining:
-            total_size += row["file_size"]
+            total_size += _session_file_size(row["db_path"])
 
         max_bytes = max_gb * 1024**3
         if total_size > max_bytes:
@@ -245,7 +275,7 @@ class MainDatabase:
                 if allowed_dir is not None:
                     p = ensure_path_within(p, allowed_dir)
                 if p.exists():
-                    total_size -= row["file_size"]
+                    total_size -= _session_file_size(row["db_path"])
                     p.unlink()
                 await self._conn.execute(
                     "UPDATE sessions SET status='cleaned' WHERE session_id=?",
@@ -277,7 +307,10 @@ class SessionDatabase:
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.execute("PRAGMA synchronous=NORMAL")
         await self._conn.execute("PRAGMA busy_timeout=5000")
+        await self._ensure_device_logs_table()
+        await self._migrate_schema()
         await self._conn.executescript(_schema_session)
+        await self._rebuild_fts()
         await self._conn.commit()
         logger.info("Session database opened at %s", self._db_path)
 
@@ -297,11 +330,18 @@ class SessionDatabase:
         if not lines or self._conn is None:
             return
         rows = [
-            (line.timestamp.isoformat(" "), source, line.text)
+            (
+                line.timestamp.isoformat(" "),
+                source,
+                _infer_log_level(line.text),
+                _infer_log_tag(line.text),
+                line.text,
+            )
             for line in lines
         ]
         await self._conn.executemany(
-            "INSERT INTO device_logs (timestamp, source, text) VALUES (?, ?, ?)",
+            "INSERT INTO device_logs (timestamp, source, level, tag, text) "
+            "VALUES (?, ?, ?, ?, ?)",
             rows,
         )
         await self._conn.commit()
@@ -316,14 +356,19 @@ class SessionDatabase:
         """Search device_logs by keyword and optional time window."""
         if self._conn is None:
             return []
-        query = "SELECT timestamp, source, text FROM device_logs WHERE text LIKE ?"
-        params: list[Any] = [f"%{keyword}%"]
+        query = (
+            "SELECT l.timestamp, l.source, l.level, l.tag, l.text "
+            "FROM device_logs_fts f "
+            "JOIN device_logs l ON l.id = f.rowid "
+            "WHERE device_logs_fts MATCH ?"
+        )
+        params: list[Any] = [_fts_phrase(keyword)]
 
         if time_window_seconds is not None:
-            query += " AND timestamp >= datetime('now', ?)"
+            query += " AND l.timestamp >= datetime('now', ?)"
             params.append(f"-{time_window_seconds} seconds")
 
-        query += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY l.id DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
         cursor = await self._conn.execute(query, params)
@@ -337,31 +382,33 @@ class SessionDatabase:
         if self._conn is None:
             return []
         cursor = await self._conn.execute(
-            "SELECT timestamp, source, text FROM device_logs "
+            "SELECT timestamp, source, level, tag, text FROM device_logs "
             "ORDER BY id ASC LIMIT ? OFFSET ?",
             (limit, offset),
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
-    async def get_analytics(self, limit: int = 20) -> list[dict[str, Any]]:
+    async def get_analytics(
+        self, limit: int = 20, patterns: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """Aggregate common error-like patterns."""
         if self._conn is None:
             return []
+        patterns = patterns or ["error", "fail", "panic", "hardfault", "fault"]
+        conditions = " OR ".join("lower(text) LIKE ?" for _ in patterns)
+        params = [f"%{pattern.lower()}%" for pattern in patterns]
+        params.append(limit)
         cursor = await self._conn.execute(
-            """
-            SELECT text, COUNT(*) as cnt
+            f"""
+            SELECT text, level, tag, COUNT(*) as cnt
             FROM device_logs
-            WHERE text LIKE '%error%'
-               OR text LIKE '%fail%'
-               OR text LIKE '%panic%'
-               OR text LIKE '%hardfault%'
-               OR text LIKE '%fault%'
+            WHERE {conditions}
             GROUP BY text
             ORDER BY cnt DESC
             LIMIT ?
             """,
-            (limit,),
+            params,
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
@@ -373,3 +420,38 @@ class SessionDatabase:
         cursor = await self._conn.execute("SELECT COUNT(*) as cnt FROM device_logs")
         row = await cursor.fetchone()
         return row["cnt"] if row else 0
+
+    async def _migrate_schema(self) -> None:
+        if self._conn is None:
+            return
+        cursor = await self._conn.execute("PRAGMA table_info(device_logs)")
+        existing_columns = {row["name"] for row in await cursor.fetchall()}
+        if "level" not in existing_columns:
+            await self._conn.execute(
+                "ALTER TABLE device_logs ADD COLUMN level TEXT NOT NULL DEFAULT 'info'"
+            )
+        if "tag" not in existing_columns:
+            await self._conn.execute("ALTER TABLE device_logs ADD COLUMN tag TEXT")
+
+    async def _ensure_device_logs_table(self) -> None:
+        if self._conn is None:
+            return
+        await self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS device_logs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp   TEXT    NOT NULL,
+                source      TEXT    NOT NULL,
+                level       TEXT    NOT NULL DEFAULT 'info',
+                tag         TEXT,
+                text        TEXT    NOT NULL
+            )
+            """
+        )
+
+    async def _rebuild_fts(self) -> None:
+        if self._conn is None:
+            return
+        await self._conn.execute(
+            "INSERT INTO device_logs_fts(device_logs_fts) VALUES ('rebuild')"
+        )

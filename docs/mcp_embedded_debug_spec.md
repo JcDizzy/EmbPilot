@@ -71,7 +71,11 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 | `id` | INTEGER PRIMARY KEY | 自增主键，建立索引 |
 | `timestamp` | TEXT | 宿主机高精度绝对时间戳 (YYYY-MM-DD HH:MM:SS.SSS) |
 | `source` | TEXT | 日志来源标识 (`serial` / `telnet` / `ssh`) |
+| `level` | TEXT | 由日志文本推断的级别（`debug` / `info` / `warning` / `error` / `critical`） |
+| `tag` | TEXT | 从日志前缀（如 `[WIFI]`）推断出的可选标签 |
 | `text` | TEXT | 原始日志文本内容（自动剥离 `\r\n`） |
+
+`device_logs` 使用 SQLite FTS5 建立全文检索索引；打开旧 session DB 时会自动补齐 `level` / `tag` 字段并 rebuild FTS 索引。
 
 ### 2. 操作与上下文历史表 (`operation_history`)
 用于记录 AI 的决策链路和人类的干预动作。
@@ -92,7 +96,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 
 ### 1. 过滤与拦截策略
 * **本地 Expect 拦截**：AI 通过 `send_command` 查参数时，runtime 为该条命令打开独立窗口；匹配到指定正则后立即停止该窗口收集，仅返回命令窗口内捕获的输出。
-* **结构化切片与搜索**：提供 `search_history_logs(keyword, time_window)` 工具。服务器在本地执行 SQL 模糊查询或 BM25 算法，仅将匹配到的核心上下文（如报错前后的 50 行）打包提交给 AI。
+* **结构化切片与搜索**：提供 `search_history_logs(keyword, time_window)` 工具。服务器在本地执行 SQLite FTS5 全文检索，仅将匹配到的核心上下文（如报错前后的 50 行）打包提交给 AI。
 
 ### 2. 本地知识库并联 (Vector DB)
 * 引入轻量化本地向量数据库（如 `Chroma` 或 `LanceDB`），利用本地小模型（如 `bge-m3`）进行文本向量化。

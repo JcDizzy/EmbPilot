@@ -1,9 +1,35 @@
 # Progress
 
+## 2026-07-07 — P2 long-term log search and metadata
+
+### Done
+- Upgraded session log schema:
+  - added inferred `level` and optional `tag` columns to `device_logs`
+  - added SQLite FTS5 external-content table and triggers for log text search
+  - added compatible migration for legacy session DBs that only have
+    `timestamp` / `source` / `text`
+- Reworked `SessionDatabase.search_logs()` to query FTS5 instead of
+  `LIKE "%keyword%"`.
+- Added log metadata inference:
+  - `level`: `debug`, `info`, `warning`, `error`, or `critical`
+  - `tag`: bracket prefix such as `[WIFI]` when present
+- Made analytics patterns configurable through `EmbPilotConfig.analytics_patterns`
+  and returned `level` / `tag` in analytics rows.
+- Updated retention size accounting to use the real on-disk size of the session
+  DB plus `-wal` and `-shm` sidecar files.
+- Updated text exports to include source/level and tag metadata.
+- Verified focused P2 coverage with:
+  `.\.venv\Scripts\python.exe -m pytest tests\test_database.py tests\runtime\test_session.py tests\integration\test_mcp_app.py -q`
+  Result: 61 passed.
+
+### Next good step
+- Continue P2 RAG productization: expose document ingest/search/list/delete MCP
+  tools and wire crash-log analysis to retrieved references.
+
 ## 2026-07-07 — P1 safety and operation boundaries
 
 ### Done
-- Added `runtime/safety.py` with shared dangerous-command detection,
+- Added `core/safety.py` with shared dangerous-command detection,
   sensitive-field redaction, and managed-directory path validation.
 - Added safety limits to `EmbPilotConfig`:
   - `command_timeout_max_ms`
@@ -30,8 +56,7 @@
   Result: 58 passed.
 
 ### Next good step
-- Continue P2 long-term logging: FTS5 search, richer log metadata, configurable
-  analytics patterns, and real retention size accounting.
+- Continue P2 long-term logging.
 
 ## 2026-07-07 — P1 MCP contract hardening
 

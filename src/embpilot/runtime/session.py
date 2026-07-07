@@ -14,7 +14,7 @@ from embpilot.drivers.base import BaseDevice
 from embpilot.runtime.expect import ExpectManager
 from embpilot.runtime.models import LogLine, RingBuffer, SessionInfo
 from embpilot.runtime.pipeline import DbSink, LogProducer, RingBufferSink, SessionDispatcher
-from embpilot.runtime.safety import is_dangerous_command
+from embpilot.core.safety import is_dangerous_command
 
 
 def build_device(interface_type: str, config: dict[str, Any]) -> BaseDevice:
@@ -270,7 +270,10 @@ class SessionManager:
     async def get_analytics(self, limit: int = 20) -> list[dict[str, Any]]:
         if self._session_db is None:
             return []
-        return await self._session_db.get_analytics(limit)
+        return await self._session_db.get_analytics(
+            limit,
+            patterns=self._config.analytics_patterns,
+        )
 
     @asynccontextmanager
     async def _open_session_db(self, session_id: str) -> AsyncIterator[SessionDatabase]:
@@ -354,7 +357,7 @@ class SessionManager:
             return json.dumps(rows, ensure_ascii=False, indent=2)
         if fmt == "text":
             return "\n".join(
-                f"[{r['timestamp']}] {r['source']}> {r['text']}" for r in rows
+                _format_exported_log_row(r) for r in rows
             )
         raise ValueError(
             f"Unsupported export format: {fmt!r} (use 'text' or 'json')"
@@ -415,6 +418,12 @@ def _encode_command(command: str, line_ending: str = "as-is") -> bytes:
     else:
         text = command.rstrip("\r\n") + endings[line_ending]
     return text.encode("utf-8")
+
+
+def _format_exported_log_row(row: dict[str, Any]) -> str:
+    tag = f"[{row['tag']}] " if row.get("tag") else ""
+    level = row.get("level") or "info"
+    return f"[{row['timestamp']}] {row['source']}/{level}> {tag}{row['text']}"
 
 
 class _SessionInfoSink:

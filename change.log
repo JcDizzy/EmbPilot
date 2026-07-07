@@ -71,3 +71,5 @@
 - P1 MCP contract: tightened tool JSON Schemas, returned tool execution failures as `CallToolResult(isError=True)`, converted unknown tool and invalid arguments into JSON-RPC protocol errors, converted unknown resources into `Resource not found` protocol errors using `-32602`, and removed the live-log subscribe handler until update notifications are implemented.
 [2026-07-07]
 - P1 safety boundaries: added dangerous-command confirmation, delete-session confirmation, managed-directory path checks before deleting session DB files, command/search/export/audit caps, MCP tool rate limiting, sensitive operation-history redaction, and a new `export_operation_history` MCP tool for redacted audit export.
+[2026-07-07]
+- P2 logging: added `level`/`tag` metadata to session logs, migrated legacy session DBs, replaced keyword `LIKE` search with SQLite FTS5, made analytics patterns configurable, returned metadata in analytics/export rows, and updated retention accounting to use real DB/WAL/SHM file sizes.

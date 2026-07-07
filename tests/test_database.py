@@ -63,10 +63,14 @@ async def test_session_database_bulk_insert_and_search():
         results = await session.search_logs("normal-5")
         assert len(results) == 1
         assert results[0]["text"] == "normal-5"
+        assert results[0]["source"] == "serial"
+        assert results[0]["level"] == "info"
+        assert results[0]["tag"] is None
 
         # Analytics
         analytics = await session.get_analytics()
         assert len(analytics) >= 2  # ERROR + panic
+        assert {row["level"] for row in analytics} >= {"error", "critical"}
 
         await session.close()
 
@@ -191,9 +195,91 @@ async def test_session_database_fetch_logs_is_ordered():
 
         fetched = await session.fetch_logs()
         assert [r["text"] for r in fetched] == [f"line-{i}" for i in range(5)]
-        assert all(set(r) == {"timestamp", "source", "text"} for r in fetched)
+        assert all(set(r) == {"timestamp", "source", "level", "tag", "text"} for r in fetched)
 
         paged = await session.fetch_logs(limit=2, offset=1)
         assert [r["text"] for r in paged] == ["line-1", "line-2"]
+
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_session_database_extracts_level_and_tag_metadata():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        session = SessionDatabase(d / "session_test.db")
+        await session.open()
+
+        await session.bulk_insert_logs(
+            [
+                LogLine(datetime.now(timezone.utc), "[WIFI] ERROR: link down"),
+                LogLine(datetime.now(timezone.utc), "[BOOT] warning: fallback"),
+            ],
+            source="serial",
+        )
+
+        rows = await session.fetch_logs()
+
+        assert rows[0]["level"] == "error"
+        assert rows[0]["tag"] == "WIFI"
+        assert rows[1]["level"] == "warning"
+        assert rows[1]["tag"] == "BOOT"
+
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_session_database_analytics_uses_configurable_patterns():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        session = SessionDatabase(d / "session_test.db")
+        await session.open()
+
+        await session.bulk_insert_logs(
+            [
+                LogLine(datetime.now(timezone.utc), "brownout detected"),
+                LogLine(datetime.now(timezone.utc), "all good"),
+            ],
+            source="serial",
+        )
+
+        analytics = await session.get_analytics(patterns=["brownout"])
+
+        assert len(analytics) == 1
+        assert analytics[0]["text"] == "brownout detected"
+
+        await session.close()
+
+
+@pytest.mark.asyncio
+async def test_session_database_migrates_legacy_log_table_to_metadata_and_fts():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        db_path = d / "legacy.db"
+        import aiosqlite
+
+        conn = await aiosqlite.connect(db_path)
+        await conn.execute(
+            "CREATE TABLE device_logs ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "timestamp TEXT NOT NULL, "
+            "source TEXT NOT NULL, "
+            "text TEXT NOT NULL)"
+        )
+        await conn.execute(
+            "INSERT INTO device_logs (timestamp, source, text) VALUES (?, ?, ?)",
+            ("2026-07-07 00:00:00.000", "serial", "legacy ERROR"),
+        )
+        await conn.commit()
+        await conn.close()
+
+        session = SessionDatabase(db_path)
+        await session.open()
+
+        results = await session.search_logs("legacy")
+
+        assert len(results) == 1
+        assert results[0]["level"] == "info"
+        assert results[0]["tag"] is None
 
         await session.close()

@@ -15,7 +15,7 @@ devices over Serial, Telnet, or SSH.
   confirmation, redacted audit history, rate limiting, and bounded exports
 - **Expose active-session resources** through MCP, including `device://live_log`
   and `device://session_info`
-- **Persist sessions** in SQLite (WAL mode) for RAG-backed historical search
+- **Persist sessions** in SQLite (WAL mode) with FTS5-backed historical search
 - **Search and export** recorded sessions (by session id, keyword, or full export)
 - **Local vector search** (fastembed + LanceDB) over Datasheets, Error Code manuals, and KB articles
 - **Analyse crash logs** and run hardware sanity checks with guided prompts
@@ -82,6 +82,8 @@ src/embpilot/
   the log pipeline always receives bytes before frame assembly. `send_command`
   accepts an explicit `line_ending` strategy (`as-is`, `none`, `lf`, `crlf`,
   `cr`) for targets which require a specific terminator.
+- Session logs store inferred `level` and `tag` metadata and are indexed through
+  SQLite FTS5 for historical search.
 
 ## License
 

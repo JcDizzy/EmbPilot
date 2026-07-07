@@ -70,6 +70,9 @@ class EmbPilotConfig:
     export_limit_max: int = 10_000
     audit_export_limit_max: int = 5_000
     tool_rate_limit_per_minute: int = 120
+    analytics_patterns: list[str] = field(
+        default_factory=lambda: ["error", "fail", "panic", "hardfault", "fault"]
+    )
 
     def __post_init__(self) -> None:
         if self.main_db_path is None:
