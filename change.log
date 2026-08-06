@@ -3,6 +3,8 @@
 ## 0.1.0 (unreleased)
 
 ### Added
+- Repository contributor guidance in `AGENTS.md`, including project layout,
+  development commands, test conventions, and contribution workflow.
 - Project skeleton: pyproject.toml, package layout, CLI entry point
 - Configuration management with XDG-compliant platform paths
 - Dual-track database architecture:

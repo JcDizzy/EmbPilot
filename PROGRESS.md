@@ -1,5 +1,15 @@
 # Progress
 
+## 2026-08-06
+
+### Done
+- Added `AGENTS.md` with repository-specific structure, setup, testing, style,
+  commit, pull request, and documentation guidance for contributors and agents.
+
+### Current status
+- Contributor guidance now documents the editable-install requirement for the
+  `src/` layout and the existing progress/change-log maintenance workflow.
+
 ## 2026-06-27
 
 ### Done
