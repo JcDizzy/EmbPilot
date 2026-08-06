@@ -48,13 +48,23 @@ class RingBuffer:
     """Fixed-length in-memory ring buffer for recent log browsing."""
 
     def __init__(self, maxlen: int = 2000) -> None:
-        self._buffer: deque[LogLine] = deque(maxlen=maxlen)
+        self._buffer: deque[tuple[int, LogLine]] = deque(maxlen=maxlen)
+        self._next_sequence = 0
 
     def push(self, line: LogLine) -> None:
-        self._buffer.append(line)
+        self._buffer.append((self._next_sequence, line))
+        self._next_sequence += 1
 
     def snapshot(self) -> list[LogLine]:
-        return list(self._buffer)
+        return [line for _, line in self._buffer]
+
+    def mark(self) -> int:
+        """Return a cursor which identifies the next line pushed."""
+        return self._next_sequence
+
+    def snapshot_since(self, cursor: int) -> list[LogLine]:
+        """Return all retained lines pushed at or after *cursor*."""
+        return [line for sequence, line in self._buffer if sequence >= cursor]
 
 
 # ── Frame assembler ─────────────────────────────────────────────────────────

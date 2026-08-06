@@ -6,18 +6,18 @@ Manages session lifecycle (connect → session DB → disconnect) and device I/O
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional, cast
 
 from pydantic import AnyUrl
 
-from mcp.server import Server, NotificationOptions
+from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
-    Tool,
     TextContent,
     Resource,
     Prompt,
@@ -30,15 +30,16 @@ from embpilot.config import EmbPilotConfig
 from embpilot.core.database import MainDatabase, SessionDatabase
 from embpilot.core.engine import (
     LogProducer,
-    ExpectConsumer,
     DbConsumer,
     RingBuffer,
     LogLine,
 )
+from embpilot.core.commands import CommandExecutor, CommandResult, LineEnding
 from embpilot.drivers.base import BaseDevice
 from embpilot.drivers.serial_dev import SerialDevice
 from embpilot.drivers.telnet_dev import TelnetDevice
 from embpilot.drivers.ssh_dev import SshDevice
+from embpilot.mcp_contracts import build_tool_definitions, dispatch_tool
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,8 @@ class DeviceSession:
         ring: RingBuffer,
         producer: LogProducer,
         db_consumer: DbConsumer,
-        expect_consumer: ExpectConsumer,
+        command_executor: CommandExecutor,
+        line_ending: LineEnding,
     ) -> None:
         self.session_id = session_id
         self.device = device
@@ -64,7 +66,8 @@ class DeviceSession:
         self.ring = ring
         self.producer = producer
         self.db_consumer = db_consumer
-        self.expect_consumer = expect_consumer
+        self.command_executor = command_executor
+        self.line_ending = line_ending
 
 
 # ── Session & Device Manager ─────────────────────────────────────────────────
@@ -72,8 +75,13 @@ class DeviceSession:
 class SessionManager:
     """Manages database sessions and active device connections."""
 
-    def __init__(self, config: EmbPilotConfig) -> None:
+    def __init__(
+        self,
+        config: EmbPilotConfig,
+        device_factory: Callable[[str, dict[str, Any]], BaseDevice] | None = None,
+    ) -> None:
         self._config = config
+        self._device_factory = device_factory or _build_device
         self._main_db = MainDatabase(config.main_db_path)
         self._active: Optional[DeviceSession] = None
         self._background_tasks: list[asyncio.Task] = []
@@ -113,7 +121,7 @@ class SessionManager:
         await self.disconnect_device()
 
         # 1. Instantiate driver
-        device = _build_device(interface_type, config)
+        device = self._device_factory(interface_type, config)
         await device.connect()
 
         # 2. Open session database
@@ -140,7 +148,10 @@ class SessionManager:
             framing_timeout_ms=self._config.framing_timeout_ms,
         )
         db_consumer = DbConsumer(queue=queue, session_db=session_db)
-        expect_consumer = ExpectConsumer(queue=queue)
+        command_executor = CommandExecutor(device, ring)
+        line_ending = config.get("line_ending", "lf")
+        if line_ending not in ("none", "lf", "crlf", "cr"):
+            raise ValueError(f"Unsupported line ending: {line_ending}")
 
         # 4. Start background tasks
         db_consumer.start()  # starts periodic flush timer
@@ -156,7 +167,8 @@ class SessionManager:
             ring=ring,
             producer=producer,
             db_consumer=db_consumer,
-            expect_consumer=expect_consumer,
+            command_executor=command_executor,
+            line_ending=cast(LineEnding, line_ending),
         )
 
         await self._main_db.insert_operation(
@@ -181,6 +193,7 @@ class SessionManager:
             t.cancel()
         await asyncio.gather(*self._background_tasks, return_exceptions=True)
         self._background_tasks.clear()
+        await ds.db_consumer.stop()
 
         # Close device
         try:
@@ -204,9 +217,11 @@ class SessionManager:
     async def send_command(
         self,
         command: str,
+        line_ending: str = "session",
         expect_regex: Optional[str] = None,
         timeout_ms: int = 5000,
-    ) -> str:
+        max_output_chars: int = 20_000,
+    ) -> CommandResult:
         """Send a command to the active device and capture output.
 
         If *expect_regex* is provided, the method returns as soon as the
@@ -216,43 +231,28 @@ class SessionManager:
         if self._active is None:
             raise RuntimeError("No active device connection")
 
-        device = self._active.device
-        ring = self._active.ring
-
-        # Take a snapshot of the ring buffer before the command
-        before = ring.snapshot()[-1].formatted() if ring.snapshot() else ""
-
-        await device.write(command.encode("utf-8"))
-
-        # Simple approach: wait for timeout and collect what arrived
-        await asyncio.sleep(timeout_ms / 1000.0)
-
-        after = ring.snapshot()
-        # Return lines that appeared after the command was sent
-        output_lines: list[str] = []
-        started = False
-        for line in after:
-            if not started:
-                if line.formatted() == before:
-                    started = True
-                continue
-            output_lines.append(line.formatted())
-
-        result = "\n".join(output_lines)
-
-        if expect_regex:
-            import re
-            matches = [l for l in output_lines if re.search(expect_regex, l)]
-            if matches:
-                result = "\n".join(matches)
+        active = self._active
+        effective_line_ending = active.line_ending if line_ending == "session" else line_ending
+        result = await active.command_executor.execute(
+            command,
+            line_ending=cast(LineEnding, effective_line_ending),
+            expect_regex=expect_regex,
+            timeout_ms=timeout_ms,
+            max_output_chars=max_output_chars,
+        )
 
         await self._main_db.insert_operation(
             actor="AI",
             action_type="call_tool",
-            detail={"tool": "send_command", "command": command, "expect": expect_regex},
-            session_id=self._active.session_id,
+            detail={
+                "tool": "send_command",
+                "command_sha256": hashlib.sha256(command.encode("utf-8")).hexdigest()[:12],
+                "command_length": len(command),
+                "expect_provided": expect_regex is not None,
+            },
+            session_id=active.session_id,
         )
-        return result or "(no output captured)"
+        return result
 
     async def reset_target(self, method: str = "reboot") -> str:
         """Reset the target device."""
@@ -283,6 +283,20 @@ class SessionManager:
 
     async def list_sessions(self) -> list[dict]:
         return await self._main_db.list_sessions()
+
+    async def search_history_logs(
+        self,
+        keyword: str,
+        time_window_seconds: int | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        if self._active is None:
+            raise RuntimeError("No active device connection")
+        return await self._active.session_db.search_logs(
+            keyword=keyword,
+            time_window_seconds=time_window_seconds,
+            limit=limit,
+        )
 
     async def delete_session(self, session_id: str) -> None:
         await self._main_db.delete_session(session_id)
@@ -333,13 +347,13 @@ def _build_device(interface: str, cfg: dict[str, Any]) -> BaseDevice:
             bytesize=cfg.get("bytesize", 8),
             parity=cfg.get("parity", "N"),
             stopbits=cfg.get("stopbits", 1),
-            timeout=cfg.get("timeout", 5.0),
+            timeout=cfg.get("timeout_ms", 5000) / 1000.0,
         )
     elif interface == "telnet":
         return TelnetDevice(
             host=cfg["host"],
             port=cfg.get("port", 23),
-            timeout=cfg.get("timeout", 10.0),
+            timeout=cfg.get("timeout_ms", 10_000) / 1000.0,
         )
     elif interface == "ssh":
         return SshDevice(
@@ -349,6 +363,8 @@ def _build_device(interface: str, cfg: dict[str, Any]) -> BaseDevice:
             password=cfg.get("password"),
             key_file=cfg.get("key_file"),
             known_hosts=cfg.get("known_hosts"),
+            insecure_skip_host_key_check=cfg.get("insecure_skip_host_key_check", False),
+            connect_timeout=cfg.get("timeout_ms", 10_000) / 1000.0,
         )
     else:
         raise ValueError(f"Unsupported interface: {interface}")
@@ -378,192 +394,12 @@ def serve(config: EmbPilotConfig) -> None:
     # ── Tools ────────────────────────────────────────────────────────
 
     @app.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="connect_device",
-                description="Establish a hardware connection to an embedded device. "
-                            "Supports serial (UART), telnet, and SSH. "
-                            "Any existing connection is implicitly closed first.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "interface_type": {
-                            "type": "string",
-                            "enum": ["serial", "telnet", "ssh"],
-                            "description": "Connection protocol",
-                        },
-                        "config": {
-                            "type": "object",
-                            "description": "Connection parameters varies by interface",
-                            "properties": {
-                                # Serial
-                                "port": {"type": "string", "description": "Serial port (e.g. COM3, /dev/ttyUSB0)"},
-                                "baudrate": {"type": "integer", "description": "Baud rate (default 115200)"},
-                                # Telnet / SSH
-                                "host": {"type": "string", "description": "Hostname or IP address"},
-                                "port": {"type": "integer", "description": "TCP port"},
-                                # SSH
-                                "username": {"type": "string", "description": "SSH username"},
-                                "password": {"type": "string", "description": "SSH password"},
-                                "key_file": {"type": "string", "description": "SSH private key path"},
-                            },
-                        },
-                    },
-                    "required": ["interface_type", "config"],
-                },
-            ),
-            Tool(
-                name="disconnect_device",
-                description="Disconnect from the currently connected device and close the session.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                },
-            ),
-            Tool(
-                name="send_command",
-                description="Send a command to the connected device and capture its output. "
-                            "Optionally provide an expect_regex to stop collecting as soon as "
-                            "a pattern is matched, reducing token usage.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "command": {"type": "string", "description": "Command to send (e.g. 'ifconfig', 'help')"},
-                        "expect_regex": {"type": "string", "description": "Optional regex; output stops when this pattern is seen"},
-                        "timeout_ms": {"type": "integer", "description": "Max wait time in milliseconds (default 5000)"},
-                    },
-                    "required": ["command"],
-                },
-            ),
-            Tool(
-                name="reset_target",
-                description="Reset the connected target device.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "method": {
-                            "type": "string",
-                            "enum": ["reboot", "dtr", "rts"],
-                            "description": "Reset method: 'reboot' sends text command; 'dtr'/'rts' toggle serial control lines",
-                        },
-                    },
-                    "required": ["method"],
-                },
-            ),
-            Tool(
-                name="search_history_logs",
-                description="Search the current session's log history for a keyword or pattern.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "keyword": {"type": "string", "description": "Keyword or pattern to search for"},
-                        "time_window_seconds": {"type": "integer", "description": "Optional time window in seconds"},
-                        "limit": {"type": "integer", "description": "Max results (default 50)"},
-                    },
-                    "required": ["keyword"],
-                },
-            ),
-            Tool(
-                name="list_sessions",
-                description="List all historical debug sessions.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                },
-            ),
-            Tool(
-                name="delete_session",
-                description="Delete a historical session and its database file.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "description": "Session ID to delete"},
-                    },
-                    "required": ["session_id"],
-                },
-            ),
-            Tool(
-                name="export_session",
-                description="Export a session database file to a specified path.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "description": "Session ID to export"},
-                        "target_path": {"type": "string", "description": "Destination file or directory path"},
-                    },
-                    "required": ["session_id", "target_path"],
-                },
-            ),
-        ]
+    async def list_tools():
+        return build_tool_definitions()
 
     @app.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-        try:
-            if name == "connect_device":
-                sid = await manager.connect_device(
-                    interface_type=arguments["interface_type"],
-                    config=arguments["config"],
-                )
-                return [TextContent(type="text", text=f"Connected. Session ID: {sid}")]
-
-            elif name == "disconnect_device":
-                await manager.disconnect_device()
-                return [TextContent(type="text", text="Disconnected.")]
-
-            elif name == "send_command":
-                result = await manager.send_command(
-                    command=arguments["command"],
-                    expect_regex=arguments.get("expect_regex"),
-                    timeout_ms=arguments.get("timeout_ms", 5000),
-                )
-                return [TextContent(type="text", text=result)]
-
-            elif name == "reset_target":
-                result = await manager.reset_target(method=arguments.get("method", "reboot"))
-                return [TextContent(type="text", text=result)]
-
-            elif name == "search_history_logs":
-                if manager._active and manager._active.session_db:
-                    results = await manager._active.session_db.search_logs(
-                        keyword=arguments["keyword"],
-                        time_window_seconds=arguments.get("time_window_seconds"),
-                        limit=arguments.get("limit", 50),
-                    )
-                    if not results:
-                        return [TextContent(type="text", text="No matches found.")]
-                    lines = [f"[{r['timestamp']}] {r['text']}" for r in results]
-                    return [TextContent(type="text", text="\n".join(lines))]
-                return [TextContent(type="text", text="No active session.")]
-
-            elif name == "list_sessions":
-                sessions = await manager.list_sessions()
-                if not sessions:
-                    return [TextContent(type="text", text="No sessions found.")]
-                lines = [
-                    f"{s['session_id']:16s} | {s['device_name']:20s} | {s['interface']:8s} | "
-                    f"{s['started_at']} | {s['status']}"
-                    for s in sessions
-                ]
-                return [TextContent(type="text", text="Session ID       | Device              | Type    | Started At            | Status\n" + "-" * 85 + "\n" + "\n".join(lines))]
-
-            elif name == "delete_session":
-                await manager.delete_session(arguments["session_id"])
-                return [TextContent(type="text", text=f"Session {arguments['session_id']} deleted.")]
-
-            elif name == "export_session":
-                dst = await manager.export_session(
-                    arguments["session_id"],
-                    Path(arguments["target_path"]),
-                )
-                return [TextContent(type="text", text=f"Exported to: {dst}")]
-
-            else:
-                raise ValueError(f"Unknown tool: {name}")
-
-        except Exception as e:
-            logger.exception("Tool call failed: %s", name)
-            return [TextContent(type="text", text=f"Error: {e}")]
+    async def call_tool(name: str, arguments: dict):
+        return await dispatch_tool(manager, name, arguments)
 
     # ── Resources ────────────────────────────────────────────────────
 
@@ -573,7 +409,7 @@ def serve(config: EmbPilotConfig) -> None:
             Resource(
                 uri=AnyUrl("device://live_log"),
                 name="Live Device Log",
-                description="Recent 2000 lines of device output from the active session (subscribable)",
+                description="Recent 2000 lines of device output from the active session",
                 mimeType="text/plain",
             ),
             Resource(
@@ -608,7 +444,7 @@ def serve(config: EmbPilotConfig) -> None:
             parts = [f"# System Info ({datetime.now(timezone.utc).isoformat()})", ""]
             for cmd in cmds:
                 try:
-                    out = await manager.send_command(cmd, timeout_ms=3000)
+                    out = (await manager.send_command(cmd, timeout_ms=3000)).output
                     parts.append(f"## {cmd}")
                     parts.append(out)
                     parts.append("")
@@ -628,11 +464,6 @@ def serve(config: EmbPilotConfig) -> None:
             return "No active session."
 
         return f"Unknown resource: {uri}"
-
-    @app.subscribe_resource()
-    async def subscribe_resource(uri: AnyUrl) -> None:
-        logger.info("Client subscribed to %s", uri)
-        # TODO(phase-3): push live_log updates on a timer
 
     # ── Prompts ──────────────────────────────────────────────────────
 
@@ -693,15 +524,15 @@ def serve(config: EmbPilotConfig) -> None:
 
     async def _run() -> None:
         await manager.start()
-
-        async with stdio_server() as (read_stream, write_stream):
-            await app.run(
-                read_stream,
-                write_stream,
-                app.create_initialization_options(),
-            )
-
-        await manager.shutdown()
+        try:
+            async with stdio_server() as (read_stream, write_stream):
+                await app.run(
+                    read_stream,
+                    write_stream,
+                    app.create_initialization_options(),
+                )
+        finally:
+            await manager.shutdown()
 
     try:
         asyncio.run(_run())

@@ -3,6 +3,14 @@
 ## 0.1.0 (unreleased)
 
 ### Added
+- Protocol-specific MCP tools for Serial, SSH, and Telnet with strict JSON
+  Schemas, defaults, examples, and unknown-field rejection.
+- Structured MCP success/error envelopes with stable error codes, retryability,
+  and recovery suggestions.
+- Command execution module with configurable line endings, cursor-based output
+  capture, expect matching, timeout state, and output truncation state.
+- Repository-level EmbPilot device-debugging agent skill and stdio MCP, CLI,
+  session, and wheel integration coverage.
 - Repository contributor guidance in `AGENTS.md`, including project layout,
   development commands, test conventions, and contribution workflow.
 - Project skeleton: pyproject.toml, package layout, CLI entry point
@@ -26,9 +34,22 @@
 - Unit tests: 19 tests covering drivers, database, pipeline, RAG, and high-throughput simulation
 
 ### Changed
+- RAG dependencies are optional through `embpilot[rag]`; default installation is
+  limited to the MCP, database, and transport runtime.
+- CLI help/version parsing no longer imports the full MCP server runtime.
+- SSH uses AsyncSSH host-key verification defaults unless insecure bypass is
+  explicitly requested.
+- Live-log resources are documented as readable rather than falsely advertised
+  as push-subscribable.
 - Database schema split from single file to dual-track (main + session)
 - CLI: --db-path → --main-db-path + --session-data-dir + --retention-days/--retention-max-gb
 [2026-06-27]
 - repo init prep: added `.gitignore` for local caches/generated files, added `.editorconfig` to pin UTF-8/LF defaults, and added `PROGRESS.md` to track initialization status plus current pytest import-path pitfall.
 - runtime rearchitecture design: added a written spec covering standard PyPI package structure, runtime module boundaries, session dispatcher fan-out, `device://session_info`, and staged migration/testing strategy.
 - runtime rearchitecture implementation plan: added a task-by-task execution plan with TDD steps, verification commands, and commit boundaries for the staged refactor.
+
+### Fixed
+- Built wheels now include `schema_main.sql` and `schema_session.sql`.
+- The first command in a session now captures output even when the ring buffer
+  was initially empty, and expect matches return before the full timeout.
+- Operation history no longer stores plaintext command contents.

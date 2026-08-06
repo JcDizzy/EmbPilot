@@ -31,7 +31,10 @@ class SshDevice(BaseDevice):
     key_file:
         Path to a private key file (optional).
     known_hosts:
-        Path to known_hosts file, or ``None`` to skip host-key verification.
+        Optional path to a known_hosts file. When omitted, AsyncSSH uses its
+        normal OpenSSH configuration and known-hosts defaults.
+    insecure_skip_host_key_check:
+        Explicitly disable host-key verification for controlled test devices.
     """
 
     def __init__(
@@ -42,6 +45,7 @@ class SshDevice(BaseDevice):
         password: Optional[str] = None,
         key_file: Optional[str] = None,
         known_hosts: Optional[str] = None,
+        insecure_skip_host_key_check: bool = False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -51,6 +55,7 @@ class SshDevice(BaseDevice):
         self._password = password
         self._key_file = key_file
         self._known_hosts = known_hosts
+        self._insecure_skip_host_key_check = insecure_skip_host_key_check
         self._extra_kwargs = kwargs
 
         self._conn: Optional[asyncssh.SSHClientConnection] = None
@@ -63,8 +68,11 @@ class SshDevice(BaseDevice):
             "host": self._host,
             "port": self._port,
             "username": self._username,
-            "known_hosts": self._known_hosts,
         }
+        if self._insecure_skip_host_key_check:
+            connect_kwargs["known_hosts"] = None
+        elif self._known_hosts is not None:
+            connect_kwargs["known_hosts"] = self._known_hosts
         if self._password is not None:
             connect_kwargs["password"] = self._password
         if self._key_file is not None:

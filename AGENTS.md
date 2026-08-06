@@ -27,3 +27,7 @@ History uses Conventional Commit prefixes such as `chore:` and `docs:`; write co
 ## Documentation & Agent Workflow
 
 Keep `README.md` and relevant files in `docs/` synchronized with behavior. Record progress and pitfalls in `PROGRESS.md`, and summarize user-visible or structural changes in `change.log`. If blocked, review those files and existing design plans before changing direction.
+
+## Embedded Device Access
+
+For Serial, SSH, or Telnet work, use EmbPilot MCP first. Do not launch raw clients or custom scripts for supported operations. Use it for connections, commands, logs, history, and resets. Fall back only when unavailable, explain why, and never expose secrets.

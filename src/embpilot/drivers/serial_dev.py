@@ -40,7 +40,7 @@ class SerialDevice(BaseDevice):
         baudrate: int = 115200,
         bytesize: int = 8,
         parity: str = "N",
-        stopbits: int = 1,
+        stopbits: float = 1,
         timeout: float = 5.0,
         **kwargs,
     ) -> None:

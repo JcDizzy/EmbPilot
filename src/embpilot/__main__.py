@@ -8,17 +8,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 
 from embpilot import __version__
 from embpilot.config import EmbPilotConfig
-from embpilot.server import serve
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="embpilot",
-        description="EmbPilot — Embedded Debugging MCP Server",
+        description="EmbPilot - Embedded Debugging MCP Server",
     )
     parser.add_argument(
         "--version",
@@ -74,6 +72,8 @@ def main() -> None:
 
     args = parser.parse_args()
     config = EmbPilotConfig.from_args(args)
+    from embpilot.server import serve
+
     serve(config)
 
 

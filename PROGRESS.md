@@ -1,5 +1,32 @@
 # Progress
 
+## 2026-08-06 — Agent-first MCP contract
+
+### Done
+- Fixed wheel packaging so both SQLite schema files ship in installed builds.
+- Split RAG dependencies into the optional `embpilot[rag]` extra while keeping
+  the development environment capable of running the full suite.
+- Replaced ambiguous nested `connect_device` arguments with strict, documented
+  `connect_serial`, `connect_ssh`, and `connect_telnet` JSON contracts.
+- Added structured MCP success/error results with stable recovery fields.
+- Added command line-ending policy, cursor-based output capture, early expect
+  matching, output limits, and command audit redaction.
+- Made SSH host-key verification secure by default and lightweight CLI help
+  independent of server runtime imports.
+- Added the repository-level `embpilot-device-debugging` agent skill, MCP client
+  setup documentation, and wheel/CLI/session/stdio integration tests.
+
+### Current status
+- Agent routing, strict tool discovery, structured results, and stdio MCP smoke
+  tests are implemented. Live logs are currently read by polling the MCP
+  resource; push subscriptions are not advertised.
+
+### Known issues / pitfalls
+- DTR/RTS reset remains unimplemented and is intentionally absent from the
+  advertised reset schema.
+- A clean `pip install embpilot` installs the lightweight core; RAG users and
+  contributors need `.[rag]` and `.[dev]`, respectively.
+
 ## 2026-08-06
 
 ### Done

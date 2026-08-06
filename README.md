@@ -10,7 +10,7 @@ devices over Serial, Telnet, or SSH.
 
 - **Connect** to devices via Serial UART, Telnet, or SSH
 - **Send commands** and capture output with regular-expression interception (Expect)
-- **Stream live logs** through MCP resource subscriptions
+- **Browse recent live logs** through MCP resources
 - **Persist sessions** in SQLite (WAL mode) for RAG-backed historical search
 - **Local vector search** (fastembed + LanceDB) over Datasheets, Error Code manuals, and KB articles
 - **Analyse crash logs** and run hardware sanity checks with guided prompts
@@ -19,10 +19,48 @@ devices over Serial, Telnet, or SSH.
 
 ```bash
 pip install embpilot
-embpilot
+embpilot --help
 ```
 
-See `embpilot --help` for available options.
+Install local RAG support only when needed:
+
+```bash
+pip install "embpilot[rag]"
+```
+
+EmbPilot is a stdio MCP server, so starting `embpilot` directly waits for an
+MCP client rather than opening an interactive terminal.
+
+## MCP Client Configuration
+
+Configure the client to start the installed executable; do not copy a
+developer-specific absolute path:
+
+```json
+{
+  "mcpServers": {
+    "embpilot": {
+      "command": "embpilot",
+      "args": ["--data-dir", "./.embpilot-data"]
+    }
+  }
+}
+```
+
+Prefer `connect_serial`, `connect_ssh`, or `connect_telnet`. Arguments are JSON
+objects, not JSON strings:
+
+```json
+{"port":"COM3","baudrate":115200,"line_ending":"crlf"}
+```
+
+```json
+{"host":"192.168.1.10","username":"root","key_file":"~/.ssh/id_ed25519"}
+```
+
+`send_command` accepts `line_ending`, `expect_regex`, `timeout_ms`, and
+`max_output_chars`. Results contain structured `ok`, `data`, or `error` fields
+alongside readable text. SSH host-key verification is enabled by default.
 
 ## Project Status
 
@@ -37,15 +75,19 @@ src/embpilot/
 ├── server.py          # MCP Tools / Resources / Prompts registration
 ├── core/
 │   ├── engine.py      # Frame assembly, ring buffer, Expect engine
+│   ├── commands.py    # Command line endings, expect, and output capture
 │   ├── database.py    # SQLite WAL layer
 │   ├── rag.py         # fastembed + LanceDB vector search
-│   └── schema.sql     # DDL
+│   └── schema_*.sql   # Main/session DDL
 └── drivers/
     ├── base.py        # Abstract device interface
     ├── serial_dev.py  # pyserial-asyncio
     ├── telnet_dev.py  # telnetlib3
     └── ssh_dev.py     # asyncssh
 ```
+
+Agent routing guidance is bundled in
+`.agents/skills/embpilot-device-debugging/`.
 
 ## License
 
