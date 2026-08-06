@@ -24,6 +24,7 @@ classifiers = [
 
 dependencies = [
     "mcp>=1.0.0",
+    "jsonschema>=4.20",
     "pyserial-asyncio>=0.6",
     "aiosqlite>=0.20",
     "telnetlib3>=2.0",

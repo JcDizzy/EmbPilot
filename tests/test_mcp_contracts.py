@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from embpilot.core.commands import CommandResult
+from embpilot.core.commands import CommandResult, NoActiveDeviceError
 from embpilot.mcp_contracts import build_tool_definitions, dispatch_tool
 
 
@@ -31,6 +31,22 @@ def test_connection_tools_have_distinct_strict_json_contracts() -> None:
     telnet_schema = tools["connect_telnet"].inputSchema
     assert telnet_schema["required"] == ["host"]
     assert telnet_schema["additionalProperties"] is False
+
+
+@pytest.mark.asyncio
+async def test_invalid_json_arguments_return_structured_error() -> None:
+    manager = RecordingManager()
+
+    result = await dispatch_tool(
+        manager,
+        "connect_serial",
+        {"port": "COM3", "config": {}},
+    )
+
+    assert manager.connection is None
+    assert result.isError is True
+    assert result.structuredContent["error"]["code"] == "INVALID_ARGUMENT"
+    assert "JSON object" in result.structuredContent["error"]["suggestion"]
 
 
 class RecordingManager:
@@ -181,7 +197,7 @@ async def test_existing_session_tools_remain_dispatchable() -> None:
 
 class DisconnectedManager(CommandManager):
     async def send_command(self, **arguments) -> CommandResult:
-        raise RuntimeError("No active device connection")
+        raise NoActiveDeviceError("No active device connection")
 
 
 @pytest.mark.asyncio

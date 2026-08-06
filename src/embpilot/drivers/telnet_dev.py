@@ -50,6 +50,7 @@ class TelnetDevice(BaseDevice):
             host=self._host,
             port=self._port,
             connect_timeout=self._timeout,
+            encoding=False,
             **self._extra_kwargs,
         )
         self._connected = True

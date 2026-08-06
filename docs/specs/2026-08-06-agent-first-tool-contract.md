@@ -37,6 +37,8 @@ The implementation is verified at four public seams:
 - Return errors as `{ok: false, error: {code, message, retryable, suggestion}}`
   with the MCP `isError` flag set.
 - Avoid recording plaintext command contents in operation history.
+- Keep the default installation lightweight and expose local vector search
+  dependencies through an explicit `rag` extra.
 - Prefer EmbPilot over raw shell SSH/Telnet/serial programs in repository agent
   guidance and the bundled skill.
 

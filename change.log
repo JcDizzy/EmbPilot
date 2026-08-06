@@ -20,18 +20,20 @@
   - `SessionDatabase` (session_<ts>_<device>.db): per-connection high-frequency device_logs
 - Frame assembly engine (byte buffer + configurable timeout-based flush)
 - In-memory ring buffer (deque, maxlen=2000) for live log browsing
-- Async producer-consumer pipeline (LogProducer, ExpectConsumer, DbConsumer → SessionDatabase)
+- Async producer-consumer pipeline (LogProducer, DbConsumer → SessionDatabase)
 - Auto-flush DbConsumer with periodic timer (50ms interval, batch_size=200)
 - Hardware drivers: SerialDevice (pyserial-asyncio), TelnetDevice (telnetlib3), SshDevice (asyncssh)
-- MCP Server integration with 8 tools, 3 resources, 2 prompts:
-  - Tools: connect_device, disconnect_device, send_command (with expect_regex), reset_target,
-    search_history_logs, list_sessions, delete_session, export_session
-  - Resources: device://live_log (subscribable), device://sysinfo, device://analytics
+- MCP Server integration with 10 tools, 3 resources, 2 prompts:
+  - Tools: connect_serial, connect_ssh, connect_telnet, disconnect_device,
+    send_command, reset_target, search_history_logs, list_sessions,
+    delete_session, export_session
+  - Resources: device://live_log, device://sysinfo, device://analytics
   - Prompts: analyze_crash_log, hardware_sanity_check
 - Session lifecycle management (auto-disconnect on reconnect, auto-cleanup on startup)
 - Retention policy: configurable max_days (30) + max_gb (5) with auto-cleanup
 - Local RAG engine: fastembed + LanceDB for semantic document search
-- Unit tests: 19 tests covering drivers, database, pipeline, RAG, and high-throughput simulation
+- Tests covering CLI, packaging, MCP stdio/contracts, session commands, drivers,
+  database, pipeline, RAG, and high-throughput simulation
 
 ### Changed
 - RAG dependencies are optional through `embpilot[rag]`; default installation is
@@ -39,6 +41,8 @@
 - CLI help/version parsing no longer imports the full MCP server runtime.
 - SSH uses AsyncSSH host-key verification defaults unless insecure bypass is
   explicitly requested.
+- Telnet and SSH sessions now use byte streams consistently, and SSH requests
+  the target's default shell instead of assuming `bash` exists.
 - Live-log resources are documented as readable rather than falsely advertised
   as push-subscribable.
 - Database schema split from single file to dual-track (main + session)

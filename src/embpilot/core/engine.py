@@ -160,6 +160,7 @@ class LogProducer:
         self._queue = queue
         self._ring = ring
         self._assembler = FrameAssembler(timeout_ms=framing_timeout_ms)
+        self._read_poll_s = max(framing_timeout_ms / 1000.0, 0.001)
         self._running = False
 
     async def run(self) -> None:
@@ -168,7 +169,17 @@ class LogProducer:
         self._running = True
         try:
             while self._running:
-                byte_data = await self._reader.read(4096)
+                try:
+                    byte_data = await asyncio.wait_for(
+                        self._reader.read(4096),
+                        timeout=self._read_poll_s,
+                    )
+                except asyncio.TimeoutError:
+                    partial = self._assembler.check_timeout()
+                    if partial is not None:
+                        await self._queue.put(partial)
+                        self._ring.push(partial)
+                    continue
                 if not byte_data:
                     break  # EOF
                 now = datetime.now(timezone.utc)

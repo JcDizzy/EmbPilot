@@ -42,7 +42,7 @@ async def test_command_applies_line_ending_and_captures_first_output() -> None:
     assert device.writes == [b"status\r\n"]
     assert "status: ready" in result.output
     assert result.matched is False
-    assert result.timed_out is False
+    assert result.timed_out is True
     assert result.truncated is False
 
 
@@ -64,3 +64,12 @@ async def test_command_returns_early_when_expect_matches() -> None:
     assert result.timed_out is False
     assert "booting" in result.output
     assert "login: ready" in result.output
+
+
+@pytest.mark.asyncio
+async def test_invalid_expect_expression_is_an_argument_error() -> None:
+    ring = RingBuffer()
+    executor = CommandExecutor(RespondingDevice(ring, []), ring)
+
+    with pytest.raises(ValueError, match="Invalid expect_regex"):
+        await executor.execute("status", expect_regex="[")

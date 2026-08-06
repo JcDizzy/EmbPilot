@@ -80,8 +80,8 @@ class SshDevice(BaseDevice):
 
         self._conn = await asyncssh.connect(**connect_kwargs, **self._extra_kwargs)
         self._chan = await self._conn.create_process(
-            "bash",
             term_type="xterm",
+            encoding=None,
         )
         self._connected = True
         logger.info("SSH session to %s@%s:%d established", self._username, self._host, self._port)

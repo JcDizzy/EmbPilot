@@ -18,7 +18,9 @@ from pydantic import AnyUrl
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
+    CallToolResult,
     TextContent,
+    Tool,
     Resource,
     Prompt,
     PromptMessage,
@@ -34,7 +36,12 @@ from embpilot.core.engine import (
     RingBuffer,
     LogLine,
 )
-from embpilot.core.commands import CommandExecutor, CommandResult, LineEnding
+from embpilot.core.commands import (
+    CommandExecutor,
+    CommandResult,
+    LineEnding,
+    NoActiveDeviceError,
+)
 from embpilot.drivers.base import BaseDevice
 from embpilot.drivers.serial_dev import SerialDevice
 from embpilot.drivers.telnet_dev import TelnetDevice
@@ -229,7 +236,7 @@ class SessionManager:
         for the full timeout.
         """
         if self._active is None:
-            raise RuntimeError("No active device connection")
+            raise NoActiveDeviceError("No active device connection")
 
         active = self._active
         effective_line_ending = active.line_ending if line_ending == "session" else line_ending
@@ -257,7 +264,7 @@ class SessionManager:
     async def reset_target(self, method: str = "reboot") -> str:
         """Reset the target device."""
         if self._active is None:
-            raise RuntimeError("No active device connection")
+            raise NoActiveDeviceError("No active device connection")
         if method == "reboot":
             await self._active.device.write(b"reboot\n")
             return "Reboot command sent"
@@ -291,7 +298,7 @@ class SessionManager:
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         if self._active is None:
-            raise RuntimeError("No active device connection")
+            raise NoActiveDeviceError("No active device connection")
         return await self._active.session_db.search_logs(
             keyword=keyword,
             time_window_seconds=time_window_seconds,
@@ -394,11 +401,11 @@ def serve(config: EmbPilotConfig) -> None:
     # ── Tools ────────────────────────────────────────────────────────
 
     @app.list_tools()
-    async def list_tools():
+    async def list_tools() -> list[Tool]:
         return build_tool_definitions()
 
-    @app.call_tool()
-    async def call_tool(name: str, arguments: dict):
+    @app.call_tool(validate_input=False)
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         return await dispatch_tool(manager, name, arguments)
 
     # ── Resources ────────────────────────────────────────────────────

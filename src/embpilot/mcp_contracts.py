@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Protocol
 
+import jsonschema
 from mcp.types import CallToolResult, TextContent, Tool
 
-from embpilot.core.commands import CommandResult
+from embpilot.core.commands import CommandResult, NoActiveDeviceError
+
+logger = logging.getLogger(__name__)
 
 _JSON_OBJECT_NOTE = (
     "Pass arguments as a JSON object, not as a JSON-encoded string. "
@@ -237,7 +241,7 @@ def build_tool_definitions() -> list[Tool]:
     ]
 
 
-class ConnectionManager(Protocol):
+class SessionOperations(Protocol):
     async def connect_device(self, interface: str, config: dict[str, Any]) -> str: ...
 
     async def send_command(self, **arguments: Any) -> CommandResult: ...
@@ -284,7 +288,7 @@ def _failure(
 
 
 async def _dispatch_tool(
-    manager: ConnectionManager,
+    manager: SessionOperations,
     name: str,
     arguments: dict[str, Any],
 ) -> CallToolResult:
@@ -356,21 +360,32 @@ async def _dispatch_tool(
 
 
 async def dispatch_tool(
-    manager: ConnectionManager,
+    manager: SessionOperations,
     name: str,
     arguments: dict[str, Any],
 ) -> CallToolResult:
     """Dispatch a tool call and keep operational errors machine-readable."""
+    tool = next((item for item in build_tool_definitions() if item.name == name), None)
+    if tool is not None:
+        try:
+            jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+        except jsonschema.ValidationError as exc:
+            return _failure(
+                "INVALID_ARGUMENT",
+                exc.message,
+                retryable=False,
+                suggestion="Refresh the tool schema and send a JSON object matching it.",
+            )
     try:
         return await _dispatch_tool(manager, name, arguments)
+    except NoActiveDeviceError as exc:
+        return _failure(
+            "NO_ACTIVE_DEVICE",
+            str(exc),
+            retryable=False,
+            suggestion="Call connect_serial, connect_ssh, or connect_telnet first.",
+        )
     except RuntimeError as exc:
-        if "No active device" in str(exc):
-            return _failure(
-                "NO_ACTIVE_DEVICE",
-                str(exc),
-                retryable=False,
-                suggestion="Call connect_serial, connect_ssh, or connect_telnet first.",
-            )
         return _failure(
             "OPERATION_FAILED",
             str(exc),
@@ -397,4 +412,12 @@ async def dispatch_tool(
             str(exc),
             retryable=True,
             suggestion="Check permissions, paths, and device availability, then retry.",
+        )
+    except Exception:
+        logger.exception("Unexpected MCP tool failure: %s", name)
+        return _failure(
+            "INTERNAL_ERROR",
+            "Unexpected internal error",
+            retryable=False,
+            suggestion="Inspect the EmbPilot server logs before retrying.",
         )

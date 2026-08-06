@@ -26,6 +26,13 @@ async def test_stdio_server_exposes_agent_first_contract(tmp_path: Path) -> None
             assert "connect_device" not in names
             assert {"connect_serial", "connect_ssh", "connect_telnet"} <= names
 
+            invalid = await session.call_tool(
+                "connect_serial",
+                arguments={"port": "COM3", "config": {}},
+            )
+            assert invalid.isError is True
+            assert invalid.structuredContent["error"]["code"] == "INVALID_ARGUMENT"
+
             result = await session.call_tool(
                 "send_command",
                 arguments={"command": "status"},

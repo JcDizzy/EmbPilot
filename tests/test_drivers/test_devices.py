@@ -82,12 +82,13 @@ async def test_telnet_connect_disconnect(mock_streams):
     reader, writer = mock_streams
 
     with patch("embpilot.drivers.telnet_dev.telnetlib3.open_connection",
-               new=AsyncMock(return_value=(reader, writer))):
+               new=AsyncMock(return_value=(reader, writer))) as mock_open:
         dev = TelnetDevice(host="192.168.1.100", port=23)
         assert not dev.is_connected
 
         await dev.connect()
         assert dev.is_connected
+        assert mock_open.await_args.kwargs["encoding"] is False
 
         await dev.disconnect()
         assert not dev.is_connected
@@ -130,6 +131,10 @@ async def test_ssh_connect_disconnect():
 
         await dev.connect()
         assert dev.is_connected
+        mock_conn.create_process.assert_awaited_once_with(
+            term_type="xterm",
+            encoding=None,
+        )
 
         await dev.write(b"reboot\n")
         mock_chan.stdin.write.assert_called_once_with(b"reboot\n")

@@ -23,6 +23,10 @@ class CommandWriter(Protocol):
     async def write(self, data: bytes) -> None: ...
 
 
+class NoActiveDeviceError(RuntimeError):
+    """Raised when an operation requires an active device session."""
+
+
 @dataclass(frozen=True)
 class CommandResult:
     output: str
@@ -62,7 +66,10 @@ class CommandExecutor:
         if max_output_chars < 1:
             raise ValueError("max_output_chars must be at least 1")
 
-        pattern = re.compile(expect_regex) if expect_regex else None
+        try:
+            pattern = re.compile(expect_regex) if expect_regex else None
+        except re.error as exc:
+            raise ValueError(f"Invalid expect_regex: {exc}") from exc
         cursor = self._ring.mark()
         payload = command.encode("utf-8")
         if not command.endswith(("\r", "\n")):
@@ -72,6 +79,7 @@ class CommandExecutor:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout_ms / 1000.0
         matched = False
+        timed_out = False
         while True:
             lines = self._ring.snapshot_since(cursor)
             if pattern and any(pattern.search(line.text) for line in lines):
@@ -79,6 +87,7 @@ class CommandExecutor:
                 break
             remaining = deadline - loop.time()
             if remaining <= 0:
+                timed_out = True
                 break
             await asyncio.sleep(min(0.01, remaining))
 
@@ -90,6 +99,6 @@ class CommandExecutor:
         return CommandResult(
             output=output or "(no output captured)",
             matched=matched,
-            timed_out=pattern is not None and not matched,
+            timed_out=timed_out,
             truncated=truncated,
         )

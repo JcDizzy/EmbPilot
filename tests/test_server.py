@@ -33,6 +33,12 @@ class EchoDevice(BaseDevice):
         return self.reader
 
 
+class PromptDevice(EchoDevice):
+    async def write(self, data: bytes) -> None:
+        self.writes.append(data)
+        self.reader.feed_data(b"login:")
+
+
 @pytest.mark.asyncio
 async def test_session_manager_executes_command_through_transport(tmp_path: Path) -> None:
     device = EchoDevice()
@@ -55,5 +61,27 @@ async def test_session_manager_executes_command_through_transport(tmp_path: Path
         assert device.writes == [b"status\r\n"]
         assert result.matched is True
         assert "status: ready" in result.output
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_session_manager_captures_prompt_without_newline(tmp_path: Path) -> None:
+    device = PromptDevice()
+    config = EmbPilotConfig(data_dir=tmp_path, framing_timeout_ms=20)
+    config.ensure_data_dirs()
+    manager = SessionManager(config, device_factory=lambda _interface, _config: device)
+    await manager.start()
+    try:
+        await manager.connect_device("serial", {"port": "COM3"})
+
+        result = await manager.send_command(
+            "",
+            expect_regex="login:",
+            timeout_ms=500,
+        )
+
+        assert result.matched is True
+        assert "login:" in result.output
     finally:
         await manager.shutdown()

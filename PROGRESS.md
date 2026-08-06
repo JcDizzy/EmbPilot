@@ -13,6 +13,8 @@
   matching, output limits, and command audit redaction.
 - Made SSH host-key verification secure by default and lightweight CLI help
   independent of server runtime imports.
+- Standardized Telnet/SSH transports on byte streams and made partial prompts
+  observable after the framing timeout even when no newline arrives.
 - Added the repository-level `embpilot-device-debugging` agent skill, MCP client
   setup documentation, and wheel/CLI/session/stdio integration tests.
 
