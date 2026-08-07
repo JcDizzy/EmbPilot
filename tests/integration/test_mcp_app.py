@@ -161,6 +161,8 @@ def test_send_command_schema_exposes_line_ending_strategy() -> None:
 
     assert line_ending_schema["default"] == "as-is"
     assert line_ending_schema["enum"] == ["as-is", "none", "lf", "crlf", "cr"]
+    command_description = tool.inputSchema["properties"]["command"]["description"]
+    assert "empty string is valid only" in command_description.lower()
     assert tool.inputSchema["properties"]["confirm_dangerous_command"]["default"] is False
 
 

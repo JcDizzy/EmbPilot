@@ -65,6 +65,10 @@ target requires them. Connection successes and runtime failures include
 structured JSON for agents as well as readable text. Invalid arguments remain
 MCP invalid-parameter errors so clients can repair the call.
 
+An empty command with `line_ending="as-is"` or `"none"` is rejected before it
+reaches a transport. To send only Enter/a blank line, use `line_ending="lf"`,
+`"crlf"`, or `"cr"` as required by the target.
+
 Current resource direction:
 
 - `device://live_log` exposes the active session's recent log snapshot and is

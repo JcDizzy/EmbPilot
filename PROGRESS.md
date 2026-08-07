@@ -25,7 +25,8 @@
 - Synchronized the README, contributor guide, release spec, and change log.
 
 ### Release verification
-- Full suite: `132 passed, 1 skipped` (optional RAG dependencies absent).
+- Full suite after the empty-write fix: `135 passed, 1 skipped` (optional RAG
+  dependencies absent).
 - Focused post-review MCP/CLI checks: `42 passed` before review follow-ups.
 - Repository skill validation and independent forward test passed.
 - Wheel and source distribution build passed; `twine check` passed for both.
@@ -33,6 +34,11 @@
   resources.
 - Pushed `agent/agent-first-release` and opened Draft PR #1 against
   `feat/runtime-rearchitecture`.
+- Fixed a release-blocking Serial edge case where `write(b"")` could trigger a
+  `serial_asyncio` transport assertion and flood the event loop. Session code
+  now rejects encoded empty payloads before opening an expect window, and the
+  Serial driver independently refuses empty writes. Explicit blank lines using
+  `lf`, `crlf`, or `cr` remain supported.
 - PyPI 0.1.1 is available as a version number, but upload is waiting for a
   local API token or configured Trusted Publisher; no token, `.pypirc`, GitHub
   secret, or existing publish workflow was found.
@@ -40,6 +46,13 @@
 ### Known issues / pitfalls
 - Do not remove the `mcp<2` bound until EmbPilot's server handlers and protocol
   error construction have been migrated and tested against MCP SDK 2.x.
+- Do not pass empty bytes to `serial_asyncio` writers. Some transport versions
+  schedule `_write_ready()` and then assert on an empty buffer, producing a
+  repeated callback exception instead of a synchronous write failure.
+- On this Windows environment, running the full suite concurrently with an
+  isolated package build once pushed a 200ms SQLite checkpoint timeout over its
+  limit. The test passed alone in 0.16s and the serial full-suite rerun passed;
+  keep final test and build gates sequential here.
 
 ## 2026-07-07 — release follow-up from third review
 

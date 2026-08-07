@@ -21,6 +21,8 @@ runtime transport architecture.
 - Synchronize README, contributor guidance, progress, and change log.
 - Preserve existing security defaults, especially SSH host-key verification
   and explicit confirmation for dangerous actions.
+- Reject encoded empty command payloads before transport I/O while allowing an
+  intentional blank line through an explicit `lf`, `crlf`, or `cr` ending.
 - Constrain the package to the supported MCP SDK 1.x API and use current SPDX
   package metadata. Version 0.1.1 is required because PyPI already contains the
   immutable 0.1.0 release.

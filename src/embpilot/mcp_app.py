@@ -197,12 +197,19 @@ def build_tool_catalog(config: EmbPilotConfig | None = None) -> list[Tool]:
             name="send_command",
             description=(
                 "Send a command line to the active device and return captured output "
-                "until the expect window closes."
+                "until the expect window closes. Empty commands require lf, crlf, "
+                "or cr line_ending so the encoded payload is not empty."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string"},
+                    "command": {
+                        "type": "string",
+                        "description": (
+                            "Command text. An empty string is valid only with "
+                            "line_ending set to lf, crlf, or cr."
+                        ),
+                    },
                     "expect_regex": {
                         "type": "string",
                         "description": "Optional regex marking the end of the response.",

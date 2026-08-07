@@ -62,6 +62,24 @@ async def test_serial_write(mock_streams):
 
 
 @pytest.mark.asyncio
+async def test_serial_write_rejects_empty_payload_without_touching_transport(mock_streams):
+    reader, writer = mock_streams
+
+    with patch(
+        "embpilot.drivers.serial_dev.serial_asyncio.open_serial_connection",
+        new=AsyncMock(return_value=(reader, writer)),
+    ):
+        dev = SerialDevice(port="COM3")
+        await dev.connect()
+
+        with pytest.raises(ValueError, match="empty payload"):
+            await dev.write(b"")
+
+        writer.write.assert_not_called()
+        writer.drain.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_serial_write_without_connect():
     dev = SerialDevice(port="COM3")
     with pytest.raises(RuntimeError, match="Not connected"):

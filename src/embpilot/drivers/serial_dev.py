@@ -83,6 +83,8 @@ class SerialDevice(BaseDevice):
     async def write(self, data: bytes) -> None:
         if self._writer is None:
             raise RuntimeError("Not connected")
+        if not data:
+            raise ValueError("Serial write received an empty payload")
         self._writer.write(data)
         await self._writer.drain()
 

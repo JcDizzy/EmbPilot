@@ -172,6 +172,11 @@ class SessionManager:
                 )
 
             command_bytes = _encode_command(command, line_ending)
+            if not command_bytes:
+                raise ValueError(
+                    "Command produces an empty payload; use line_ending='lf', "
+                    "'crlf', or 'cr' to send a blank line"
+                )
             window = self._expect.open_window(expect_regex=expect_regex, timeout_ms=timeout_ms)
             try:
                 await self._device.write(command_bytes)

@@ -239,6 +239,77 @@ def test_send_command_rejects_unknown_line_ending(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_send_command_rejects_empty_encoded_payload_before_device_write(
+    tmp_path, monkeypatch
+):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            with pytest.raises(ValueError, match="empty payload"):
+                await manager.send_command("", line_ending="as-is")
+
+            assert fake.writes == []
+            assert len(manager._expect._windows) == 0
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_send_command_allows_blank_line_when_line_ending_produces_bytes(
+    tmp_path, monkeypatch
+):
+    async def scenario() -> None:
+        fake = _FakeDevice()
+        monkeypatch.setattr(
+            "embpilot.runtime.session.build_device",
+            lambda interface_type, config: fake,
+        )
+        config = EmbPilotConfig(
+            data_dir=tmp_path,
+            main_db_path=tmp_path / "embpilot_main.db",
+            session_data_dir=tmp_path / "sessions",
+            lancedb_path=tmp_path / "lancedb",
+            framing_timeout_ms=5,
+        )
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            await manager.connect_device("serial", {"port": "COM9"})
+
+            task = asyncio.create_task(
+                manager.send_command(
+                    "",
+                    expect_regex=r"ready",
+                    timeout_ms=500,
+                    line_ending="lf",
+                )
+            )
+            await asyncio.sleep(0)
+            fake.emit_line("ready")
+            await task
+
+            assert fake.writes == [b"\n"]
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
 def test_send_command_requires_confirmation_for_dangerous_command(tmp_path, monkeypatch):
     async def scenario() -> None:
         fake = _FakeDevice()

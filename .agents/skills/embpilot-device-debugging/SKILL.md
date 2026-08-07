@@ -16,7 +16,9 @@ EmbPilot's session history, safety checks, and structured results.
    JSON as a string and do not wrap settings in a `config` property.
 3. Use `send_command` for device interaction. Set `line_ending` when the target
    requires `lf`, `crlf`, or `cr`; the default is `as-is`. Use `expect_regex`
-   and `timeout_ms` for deterministic command completion.
+   and `timeout_ms` for deterministic command completion. Never send an empty
+   command with `as-is` or `none`; to send only a blank line, use `lf`, `crlf`,
+   or `cr` so EmbPilot writes at least one byte.
 4. Inspect `structuredContent` when present. Connection successes include it,
    and runtime failures use `{"ok":false,"error":{...}}`; other successful
    tools may return text. Malformed inputs are MCP invalid-parameter errors and
