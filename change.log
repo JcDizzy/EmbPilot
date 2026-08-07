@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.1.0 (unreleased)
+## 0.1.1 (2026-08-07)
 
 ### Added
 - Project skeleton: pyproject.toml, package layout, CLI entry point
@@ -13,8 +13,8 @@
 - Async producer-consumer pipeline (LogProducer, ExpectConsumer, DbConsumer → SessionDatabase)
 - Auto-flush DbConsumer with periodic timer (50ms interval, batch_size=200)
 - Hardware drivers: SerialDevice (pyserial-asyncio), TelnetDevice (telnetlib3), SshDevice (asyncssh)
-- MCP Server integration with 13 tools, 3 resources, 2 prompts:
-  - Tools: connect_device, send_command (with expect_regex), reset_target (reboot only),
+- MCP Server integration with 15 tools, 3 resources, 2 prompts:
+  - Tools: connect_serial, connect_ssh, connect_telnet, send_command (with expect_regex), reset_target (reboot only),
     disconnect_device, list_sessions, delete_session, search_history_logs, export_session,
     export_operation_history, ingest_doc, search_docs, list_doc_sources, delete_doc
   - Resources: device://live_log (snapshot), device://session_info, device://analytics
@@ -23,10 +23,23 @@
 - Retention policy: configurable max_days (30) + max_gb (5) with auto-cleanup
 - Local RAG engine: fastembed + LanceDB for semantic document search
 - Unit tests: 19 tests covering drivers, database, pipeline, RAG, and high-throughput simulation
+- Repository-level agent skill for routing Serial, SSH, Telnet,
+  firmware-console, and device-shell tasks through EmbPilot with correct JSON
 
 ### Changed
 - Database schema split from single file to dual-track (main + session)
 - CLI: --db-path → --main-db-path + --session-data-dir + --retention-days/--retention-max-gb
+- Public connection tools are protocol-specific and accept flat JSON objects;
+  runtime tool results now include structured success or error envelopes
+- MCP SDK dependency is constrained to the compatible 1.x API; MCP 2.0 changed
+  protocol exception names and construction semantics
+- Packaging metadata now uses an SPDX license expression with setuptools 77+
+[2026-08-07]
+- agent-first MCP contract: replaced the ambiguous public `connect_device` tool
+  with `connect_serial`, `connect_ssh`, and `connect_telnet`, added concrete JSON
+  examples, and kept the internal session-manager connection seam unchanged.
+- agent experience: added structured runtime errors plus a repository-level
+  `embpilot-device-debugging` skill and synchronized README/contributor guidance.
 [2026-06-27]
 - repo init prep: added `.gitignore` for local caches/generated files, added `.editorconfig` to pin UTF-8/LF defaults, and added `PROGRESS.md` to track initialization status plus current pytest import-path pitfall.
 - runtime rearchitecture design: added a written spec covering standard PyPI package structure, runtime module boundaries, session dispatcher fan-out, `device://session_info`, and staged migration/testing strategy.

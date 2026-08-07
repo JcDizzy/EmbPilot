@@ -4,9 +4,31 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
+
+
+def test_project_rejects_unsupported_mcp_major_version() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    project = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    mcp_requirement = next(
+        dependency
+        for dependency in project["project"]["dependencies"]
+        if dependency.startswith("mcp")
+    )
+
+    assert "<2" in mcp_requirement
+
+
+def test_project_and_runtime_versions_match() -> None:
+    from embpilot import __version__
+
+    repo_root = Path(__file__).resolve().parents[2]
+    project = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert project["project"]["version"] == __version__
 
 
 def test_build_parser_includes_data_dir_flag() -> None:

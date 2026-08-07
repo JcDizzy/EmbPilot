@@ -1,5 +1,38 @@
 # Progress
 
+## 2026-08-07 — agent-first 0.1.1 release preparation
+
+### Done
+- Replaced the ambiguous public `connect_device` tool with flat,
+  protocol-specific `connect_serial`, `connect_ssh`, and `connect_telnet`
+  contracts while preserving the internal session-manager seam.
+- Added concrete JSON examples and explicit guidance against encoded JSON
+  strings or a nested `config` wrapper.
+- Added structured success and runtime-error envelopes without weakening MCP
+  invalid-parameter handling for malformed calls.
+- Added the repository-level `embpilot-device-debugging` skill so agents route
+  Serial, SSH, Telnet, firmware-console, and device-shell tasks through
+  EmbPilot by default.
+- Forward-tested the skill with a COM-port boot-log scenario and clarified
+  live-log snapshot behavior, conditional structured output, and unconditional
+  disconnect cleanup.
+- Constrained the MCP SDK to the supported 1.x API after a clean-install test
+  caught the incompatible `McpError`/`MCPError` API change in MCP 2.0.0.
+- Migrated package metadata to an SPDX license expression and setuptools 77+
+  so release builds avoid the deprecated license-table format.
+- Bumped the release to 0.1.1 because PyPI already contains the immutable
+  0.1.0 artifacts published on 2026-07-02; added a version-sync regression.
+- Synchronized the README, contributor guide, release spec, and change log.
+
+### Release verification
+- Focused MCP contract tests pass during TDD.
+- Full suite, distribution build, package checks, GitHub push, and PyPI upload
+  are the remaining release gates for this branch.
+
+### Known issues / pitfalls
+- Do not remove the `mcp<2` bound until EmbPilot's server handlers and protocol
+  error construction have been migrated and tested against MCP SDK 2.x.
+
 ## 2026-07-07 — release follow-up from third review
 
 ### Done

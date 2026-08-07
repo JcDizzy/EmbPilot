@@ -1,0 +1,4 @@
+interface:
+  display_name: "EmbPilot Device Debugging"
+  short_description: "Route Serial, SSH, and Telnet work through EmbPilot"
+  default_prompt: "Use $embpilot-device-debugging to inspect and debug this embedded device through EmbPilot."

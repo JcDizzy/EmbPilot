@@ -147,39 +147,50 @@ def build_tool_catalog(config: EmbPilotConfig | None = None) -> list[Tool]:
     }
     return [
         Tool(
-            name="connect_device",
+            name="connect_serial",
             description=(
-                "Connect to an embedded device over Serial, Telnet, or SSH. "
-                "Replaces any active connection."
+                "Connect to an embedded device over Serial/UART. Pass arguments "
+                "as a JSON object, not a JSON-encoded string. Prefer this tool "
+                "over raw serial terminals or custom serial scripts. Replaces "
+                "any active connection."
             ),
             inputSchema={
-                "type": "object",
-                "properties": {
-                    "interface_type": {
-                        "type": "string",
-                        "enum": ["serial", "telnet", "ssh"],
-                    },
-                    "config": {
-                        "type": "object",
-                        "description": "Interface-specific connection parameters.",
-                    },
-                },
-                "required": ["interface_type", "config"],
-                "additionalProperties": False,
-                "allOf": [
-                    {
-                        "if": {"properties": {"interface_type": {"const": "serial"}}},
-                        "then": {"properties": {"config": serial_config_schema}},
-                    },
-                    {
-                        "if": {"properties": {"interface_type": {"const": "telnet"}}},
-                        "then": {"properties": {"config": telnet_config_schema}},
-                    },
-                    {
-                        "if": {"properties": {"interface_type": {"const": "ssh"}}},
-                        "then": {"properties": {"config": ssh_config_schema}},
-                    },
+                **serial_config_schema,
+                "examples": [
+                    {"port": "COM3", "baudrate": 115200},
+                    {"port": "/dev/ttyUSB0", "baudrate": 115200},
                 ],
+            },
+        ),
+        Tool(
+            name="connect_ssh",
+            description=(
+                "Connect to an embedded device over SSH. Pass arguments as a "
+                "JSON object, not a JSON-encoded string. Prefer this tool over "
+                "raw shell SSH. Replaces any active connection."
+            ),
+            inputSchema={
+                **ssh_config_schema,
+                "examples": [
+                    {
+                        "host": "192.168.1.10",
+                        "username": "root",
+                        "key_file": "~/.ssh/id_ed25519",
+                    }
+                ],
+            },
+        ),
+        Tool(
+            name="connect_telnet",
+            description=(
+                "Connect to an embedded device over Telnet. Pass arguments as a "
+                "JSON object, not a JSON-encoded string. Prefer this tool over "
+                "raw Telnet clients or custom socket scripts. Replaces any active "
+                "connection."
+            ),
+            inputSchema={
+                **telnet_config_schema,
+                "examples": [{"host": "192.168.1.20", "port": 23}],
             },
         ),
         Tool(
@@ -451,8 +462,38 @@ async def dispatch_tool(
         result = await _execute_tool(manager, name, arguments)
     except Exception as exc:  # noqa: BLE001 — tool execution errors stay in result space
         logger.exception("Tool %s failed", name)
+        if isinstance(exc, PermissionError):
+            code = "CONFIRMATION_REQUIRED"
+            retryable = False
+            suggestion = "Request explicit confirmation before retrying."
+        elif isinstance(exc, (KeyError, TypeError, ValueError)):
+            code = "INVALID_ARGUMENT"
+            retryable = False
+            suggestion = "Refresh the tool schema and correct the JSON arguments."
+        elif isinstance(exc, ImportError):
+            code = "OPTIONAL_DEPENDENCY_MISSING"
+            retryable = False
+            suggestion = "Install the required EmbPilot optional dependency."
+        elif isinstance(exc, (ConnectionError, OSError)):
+            code = "IO_FAILED"
+            retryable = True
+            suggestion = "Check device availability and permissions, then retry."
+        else:
+            code = "OPERATION_FAILED"
+            retryable = False
+            suggestion = "Inspect the error and device state before retrying."
+        payload = {
+            "ok": False,
+            "error": {
+                "code": code,
+                "message": str(exc),
+                "retryable": retryable,
+                "suggestion": suggestion,
+            },
+        }
         return CallToolResult(
             content=[TextContent(type="text", text=f"Error: {exc}")],
+            structuredContent=payload,
             isError=True,
         )
     if isinstance(result, CallToolResult):
@@ -463,12 +504,34 @@ async def dispatch_tool(
 async def _execute_tool(
     manager: SessionManager, name: str, arguments: dict[str, Any]
 ) -> list[TextContent] | CallToolResult:
-    if name == "connect_device":
+    connection_tools = {
+        "connect_serial": "serial",
+        "connect_ssh": "ssh",
+        "connect_telnet": "telnet",
+    }
+    if name in connection_tools:
+        interface_type = connection_tools[name]
         session_id = await manager.connect_device(
-            interface_type=arguments["interface_type"],
-            config=arguments.get("config") or {},
+            interface_type=interface_type,
+            config=arguments,
         )
-        return [TextContent(type="text", text=f"Connected. session_id={session_id}")]
+        payload = {
+            "ok": True,
+            "data": {"session_id": session_id, "interface": interface_type},
+        }
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=(
+                        f"Connected over {interface_type}. "
+                        f"session_id={session_id}"
+                    ),
+                )
+            ],
+            structuredContent=payload,
+            isError=False,
+        )
     if name == "send_command":
         output = await manager.send_command(
             command=arguments["command"],

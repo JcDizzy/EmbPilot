@@ -26,11 +26,44 @@ devices over Serial, Telnet, or SSH.
 ```bash
 pip install embpilot        # core: Serial/Telnet/SSH MCP server
 pip install embpilot[rag]   # + optional local RAG (fastembed + LanceDB)
-embpilot
+embpilot --help
 ```
 
-See `embpilot --help` for available options, or run `embpilot doctor` for
+Run `embpilot doctor` for
 environment diagnostics (Python, core/RAG deps, drivers, storage, serial ports).
+The plain `embpilot` command starts the MCP stdio server and waits for an MCP
+client; it is not an interactive shell.
+
+## MCP Client Configuration
+
+Configure your agent to start EmbPilot as an MCP server:
+
+```json
+{
+  "mcpServers": {
+    "embpilot": {
+      "command": "embpilot",
+      "args": ["--data-dir", "./.embpilot-data"]
+    }
+  }
+}
+```
+
+Agents should use EmbPilot before raw `ssh`, `telnet`, or serial clients. Pick
+the protocol-specific tool and pass an actual JSON object, not an encoded JSON
+string or a nested `config` object:
+
+```json
+{"port":"COM3","baudrate":115200}
+{"host":"192.168.1.10","username":"root","key_file":"~/.ssh/id_ed25519"}
+{"host":"192.168.1.10","port":23}
+```
+
+These map to `connect_serial`, `connect_ssh`, and `connect_telnet`. Then use
+`send_command`; set `expect_regex`, `timeout_ms`, or `line_ending` when the
+target requires them. Connection successes and runtime failures include
+structured JSON for agents as well as readable text. Invalid arguments remain
+MCP invalid-parameter errors so clients can repair the call.
 
 Current resource direction:
 

@@ -143,11 +143,14 @@ def test_build_tool_catalog_lists_core_tools() -> None:
     names = {tool.name for tool in build_tool_catalog()}
 
     assert {
-        "connect_device",
+        "connect_serial",
+        "connect_ssh",
+        "connect_telnet",
         "send_command",
         "reset_target",
         "disconnect_device",
     } <= names
+    assert "connect_device" not in names
 
 
 def test_send_command_schema_exposes_line_ending_strategy() -> None:
@@ -238,12 +241,26 @@ def test_reset_target_schema_excludes_dtr_and_rts() -> None:
 def test_ssh_known_hosts_schema_documents_explicit_opt_out() -> None:
     from embpilot.mcp_app import build_tool_catalog
 
-    tool = next(t for t in build_tool_catalog() if t.name == "connect_device")
-    ssh_schema = tool.inputSchema["allOf"][2]["then"]["properties"]["config"]
+    tool = next(t for t in build_tool_catalog() if t.name == "connect_ssh")
+    ssh_schema = tool.inputSchema
     known_hosts = ssh_schema["properties"]["known_hosts"]
 
     assert "Omit to use AsyncSSH defaults" in known_hosts["description"]
     assert {"type": "null"} in known_hosts["anyOf"]
+
+
+def test_serial_connection_tool_uses_flat_json_with_examples() -> None:
+    from embpilot.mcp_app import build_tool_catalog
+
+    tool = next(t for t in build_tool_catalog() if t.name == "connect_serial")
+
+    assert tool.inputSchema["required"] == ["port"]
+    assert tool.inputSchema["additionalProperties"] is False
+    assert "config" not in tool.inputSchema["properties"]
+    assert tool.inputSchema["examples"] == [
+        {"port": "COM3", "baudrate": 115200},
+        {"port": "/dev/ttyUSB0", "baudrate": 115200},
+    ]
 
 
 def test_delete_session_schema_requires_confirmation() -> None:
@@ -447,6 +464,36 @@ def test_dispatch_tool_unknown_returns_error_text(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_dispatch_connect_serial_routes_flat_json_and_returns_structured_content() -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    class RecordingManager:
+        def __init__(self) -> None:
+            self.connection: tuple[str, dict] | None = None
+
+        async def connect_device(
+            self, interface_type: str, config: dict
+        ) -> str:
+            self.connection = (interface_type, config)
+            return "session-123"
+
+    async def scenario() -> None:
+        manager = RecordingManager()
+        arguments = {"port": "COM3", "baudrate": 115200}
+
+        result = await dispatch_tool(manager, "connect_serial", arguments)
+
+        assert manager.connection == ("serial", arguments)
+        assert result.isError is False
+        assert result.structuredContent == {
+            "ok": True,
+            "data": {"session_id": "session-123", "interface": "serial"},
+        }
+        assert result.content[0].text == "Connected over serial. session_id=session-123"
+
+    asyncio.run(scenario())
+
+
 def test_dispatch_tool_send_command_without_connection_returns_error(tmp_path: Path) -> None:
     from embpilot.mcp_app import dispatch_tool
 
@@ -462,6 +509,15 @@ def test_dispatch_tool_send_command_without_connection_returns_error(tmp_path: P
         assert len(result.content) == 1
         assert isinstance(result.content[0], types.TextContent)
         assert "error" in result.content[0].text.lower()
+        assert result.structuredContent == {
+            "ok": False,
+            "error": {
+                "code": "OPERATION_FAILED",
+                "message": "No active device connection",
+                "retryable": False,
+                "suggestion": "Inspect the error and device state before retrying.",
+            },
+        }
 
     asyncio.run(scenario())
 
