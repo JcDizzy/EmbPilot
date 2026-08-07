@@ -30,7 +30,12 @@
 - Repository skill validation and independent forward test passed.
 - Wheel and source distribution build passed; `twine check` passed for both.
 - Wheel inspection confirmed version, `mcp<2`, MCP app code, and both SQL schema
-  resources. GitHub push and PyPI upload remain external publication steps.
+  resources.
+- Pushed `agent/agent-first-release` and opened Draft PR #1 against
+  `feat/runtime-rearchitecture`.
+- PyPI 0.1.1 is available as a version number, but upload is waiting for a
+  local API token or configured Trusted Publisher; no token, `.pypirc`, GitHub
+  secret, or existing publish workflow was found.
 
 ### Known issues / pitfalls
 - Do not remove the `mcp<2` bound until EmbPilot's server handlers and protocol
