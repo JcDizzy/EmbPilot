@@ -25,9 +25,12 @@
 - Synchronized the README, contributor guide, release spec, and change log.
 
 ### Release verification
-- Focused MCP contract tests pass during TDD.
-- Full suite, distribution build, package checks, GitHub push, and PyPI upload
-  are the remaining release gates for this branch.
+- Full suite: `132 passed, 1 skipped` (optional RAG dependencies absent).
+- Focused post-review MCP/CLI checks: `42 passed` before review follow-ups.
+- Repository skill validation and independent forward test passed.
+- Wheel and source distribution build passed; `twine check` passed for both.
+- Wheel inspection confirmed version, `mcp<2`, MCP app code, and both SQL schema
+  resources. GitHub push and PyPI upload remain external publication steps.
 
 ### Known issues / pitfalls
 - Do not remove the `mcp<2` bound until EmbPilot's server handlers and protocol

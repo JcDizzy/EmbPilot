@@ -419,6 +419,15 @@ def test_call_tool_handler_rate_limit_returns_tool_error(tmp_path: Path) -> None
         assert first.root.isError is False
         assert second.root.isError is True
         assert "rate limit" in second.root.content[0].text.lower()
+        assert second.root.structuredContent == {
+            "ok": False,
+            "error": {
+                "code": "RATE_LIMITED",
+                "message": "Rate limit exceeded for MCP tool calls",
+                "retryable": True,
+                "suggestion": "Wait before retrying the tool call.",
+            },
+        }
 
     asyncio.run(scenario())
 
@@ -464,7 +473,17 @@ def test_dispatch_tool_unknown_returns_error_text(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_dispatch_connect_serial_routes_flat_json_and_returns_structured_content() -> None:
+@pytest.mark.parametrize(
+    ("tool_name", "interface_type", "arguments"),
+    [
+        ("connect_serial", "serial", {"port": "COM3", "baudrate": 115200}),
+        ("connect_ssh", "ssh", {"host": "192.168.1.10", "username": "root"}),
+        ("connect_telnet", "telnet", {"host": "192.168.1.20", "port": 23}),
+    ],
+)
+def test_dispatch_connection_tools_route_flat_json_and_return_structured_content(
+    tool_name: str, interface_type: str, arguments: dict
+) -> None:
     from embpilot.mcp_app import dispatch_tool
 
     class RecordingManager:
@@ -479,17 +498,51 @@ def test_dispatch_connect_serial_routes_flat_json_and_returns_structured_content
 
     async def scenario() -> None:
         manager = RecordingManager()
-        arguments = {"port": "COM3", "baudrate": 115200}
+        result = await dispatch_tool(manager, tool_name, arguments)
 
-        result = await dispatch_tool(manager, "connect_serial", arguments)
-
-        assert manager.connection == ("serial", arguments)
+        assert manager.connection == (interface_type, arguments)
         assert result.isError is False
         assert result.structuredContent == {
             "ok": True,
-            "data": {"session_id": "session-123", "interface": "serial"},
+            "data": {"session_id": "session-123", "interface": interface_type},
         }
-        assert result.content[0].text == "Connected over serial. session_id=session-123"
+        assert result.content[0].text == (
+            f"Connected over {interface_type}. session_id=session-123"
+        )
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("error", "code", "retryable"),
+    [
+        (PermissionError("confirmation required"), "CONFIRMATION_REQUIRED", False),
+        (ValueError("bad argument"), "INVALID_ARGUMENT", False),
+        (ImportError("missing extra"), "OPTIONAL_DEPENDENCY_MISSING", False),
+        (ConnectionError("device unavailable"), "IO_FAILED", True),
+        (RuntimeError("operation failed"), "OPERATION_FAILED", False),
+    ],
+)
+def test_dispatch_tool_maps_runtime_errors_to_structured_codes(
+    error: Exception, code: str, retryable: bool
+) -> None:
+    from embpilot.mcp_app import dispatch_tool
+
+    class RaisingManager:
+        async def send_command(self, **_: object) -> str:
+            raise error
+
+    async def scenario() -> None:
+        result = await dispatch_tool(
+            RaisingManager(),
+            "send_command",
+            {"command": "status"},
+        )
+
+        assert result.isError is True
+        assert result.structuredContent["error"]["code"] == code
+        assert result.structuredContent["error"]["retryable"] is retryable
+        assert result.structuredContent["error"]["message"] == str(error)
 
     asyncio.run(scenario())
 

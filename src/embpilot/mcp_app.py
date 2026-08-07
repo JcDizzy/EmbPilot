@@ -482,15 +482,7 @@ async def dispatch_tool(
             code = "OPERATION_FAILED"
             retryable = False
             suggestion = "Inspect the error and device state before retrying."
-        payload = {
-            "ok": False,
-            "error": {
-                "code": code,
-                "message": str(exc),
-                "retryable": retryable,
-                "suggestion": suggestion,
-            },
-        }
+        payload = _error_payload(code, str(exc), retryable, suggestion)
         return CallToolResult(
             content=[TextContent(type="text", text=f"Error: {exc}")],
             structuredContent=payload,
@@ -755,10 +747,31 @@ class _RateLimiter:
         return True
 
 
-def _tool_error_result(message: str) -> ServerResult:
+def _error_payload(
+    code: str, message: str, retryable: bool, suggestion: str
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": {
+            "code": code,
+            "message": message,
+            "retryable": retryable,
+            "suggestion": suggestion,
+        },
+    }
+
+
+def _tool_error_result(
+    message: str,
+    *,
+    code: str,
+    retryable: bool,
+    suggestion: str,
+) -> ServerResult:
     return ServerResult(
         CallToolResult(
             content=[TextContent(type="text", text=message)],
+            structuredContent=_error_payload(code, message, retryable, suggestion),
             isError=True,
         )
     )
@@ -785,7 +798,12 @@ async def _handle_call_tool_request(
         ) from exc
     arguments = _apply_schema_defaults(arguments, tool.inputSchema)
     if not rate_limiter.allow():
-        return _tool_error_result("Rate limit exceeded for MCP tool calls")
+        return _tool_error_result(
+            "Rate limit exceeded for MCP tool calls",
+            code="RATE_LIMITED",
+            retryable=True,
+            suggestion="Wait before retrying the tool call.",
+        )
 
     return ServerResult(await dispatch_tool(manager, name, arguments))
 
