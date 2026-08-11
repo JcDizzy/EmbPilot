@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -76,6 +77,78 @@ def test_main_version_flag_prints_version(capsys: pytest.CaptureFixture[str]) ->
 
     assert exc_info.value.code == 0
     assert capsys.readouterr().out.strip() == f"embpilot {__version__}"
+
+
+def test_main_install_and_uninstall_agent_integration(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from embpilot.agent_install.targets import SECTION_START
+    from embpilot.cli import main
+
+    main(
+        [
+            "install",
+            "--target",
+            "claude,opencode",
+            "--location",
+            "local",
+            "--project-dir",
+            str(tmp_path),
+            "--server-command",
+            "embpilot",
+        ]
+    )
+
+    assert SECTION_START in (tmp_path / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
+    assert SECTION_START in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    config = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
+    assert config["mcpServers"]["embpilot"]["command"] == "embpilot"
+    assert "Claude Code: created" in capsys.readouterr().out
+
+    main(
+        [
+            "uninstall",
+            "--target",
+            "claude,opencode",
+            "--location",
+            "local",
+            "--project-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert not (tmp_path / "AGENTS.md").exists()
+    assert json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8")) == {}
+    assert "OpenCode: removed" in capsys.readouterr().out
+
+
+def test_interactive_install_prompts_for_targets_and_location(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from embpilot.agent_install import cli as install_cli
+    from embpilot.agent_install.targets import InstallContext
+    from embpilot.cli import main
+
+    context = InstallContext(
+        project_dir=tmp_path,
+        home_dir=tmp_path / "home",
+        server_command="embpilot",
+    )
+    (context.home_dir / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(
+        install_cli.InstallContext,
+        "current",
+        classmethod(lambda cls, project_dir, server_command: context),
+    )
+    answers = iter(["1", "local"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+
+    main(["install", "--project-dir", str(tmp_path), "--server-command", "embpilot"])
+
+    assert (tmp_path / ".mcp.json").exists()
+    assert (tmp_path / ".claude" / "CLAUDE.md").exists()
 
 
 def test_python_module_entrypoint_prints_version() -> None:
@@ -270,7 +343,8 @@ def test_clean_install_can_import_mcp_app(tmp_path: Path) -> None:
         [
             str(venv_python),
             "-c",
-            "from embpilot.mcp_app import create_mcp_app; print('ok')",
+            "from embpilot.mcp_app import create_mcp_app; "
+            "from embpilot.agent_install import install_targets; print('ok')",
         ],
         capture_output=True,
         check=False,

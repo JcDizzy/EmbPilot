@@ -98,6 +98,9 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor",
         help="Run environment diagnostics and exit",
     )
+    from embpilot.agent_install.cli import add_agent_subcommands
+
+    add_agent_subcommands(subparsers)
     return parser
 
 
@@ -109,6 +112,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         from embpilot.doctor import run_doctor
 
         sys.exit(run_doctor())
+
+    if args.command in {"install", "uninstall"}:
+        from embpilot.agent_install.cli import run_agent_command
+
+        try:
+            run_agent_command(args)
+        except ValueError as exc:
+            parser.error(str(exc))
+        return
 
     from embpilot.config import EmbPilotConfig
     from embpilot.mcp_app import run_stdio_mcp_server

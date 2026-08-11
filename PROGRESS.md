@@ -1,5 +1,39 @@
 # Progress
 
+## 2026-08-11 — multi-harness agent installer
+
+### Done
+- Reviewed CodeGraph's installer architecture: explicit install/uninstall,
+  marker-fenced instruction blocks, idempotent config writes, and separation
+  between package installation and project initialization.
+- Added interactive `embpilot install` and `embpilot uninstall` flows with
+  target selection, detected-harness labels, global/local scope, `--yes`, and
+  scripted comma-separated target selection.
+- Added adapters for Claude Code, Codex, ZCode, and OpenCode, including their
+  distinct JSON, TOML, nested JSON, and JSONC configuration shapes.
+- ZCode installs and registers an enabled `embpilot-device-debugging` skill as
+  its routing hook because no global instruction-file convention was found.
+- Split installer ownership across `agent_install/files.py`, `targets.py`,
+  `installer.py`, and `cli.py` so harness-specific paths do not leak into the
+  top-level CLI or MCP runtime.
+- Installer writes the absolute running EmbPilot launcher where possible,
+  avoiding GUI harness PATH differences.
+- Added safe uninstall, idempotency, sibling-config preservation, local/global
+  routing, alias, interactive-flow, JSONC refusal, and trailing-comma tests.
+- Final verification passed with `145 passed, 1 skipped`; the suite includes a
+  clean-install import check for the packaged `embpilot.agent_install` module.
+
+### Pitfalls
+- Python package installation must not silently mutate whichever directory
+  happens to be active during `pip install`. Like CodeGraph, EmbPilot uses an
+  explicit post-install command: install the executable first, then configure
+  the intended project with `embpilot install`.
+- ZCode's global MCP path and schema are confirmed at
+  `~/.zcode/cli/config.json`; no global instruction path was found, so the
+  adapter deliberately avoids inventing one.
+- OpenCode JSONC files containing comments are rejected without modification
+  until EmbPilot has a comment-preserving JSONC editor.
+
 ## 2026-08-07 — agent-first 0.1.1 release preparation
 
 ### Done

@@ -1,5 +1,18 @@
 # Change Log
 
+[2026-08-11]
+- multi-harness installer: added interactive and scripted installation for
+  Claude Code, Codex, ZCode, and OpenCode with auto detection, global/local
+  scope, target aliases, and `--yes` defaults modeled after CodeGraph.
+- config adapters: added owned JSON/JSONC/TOML edits, atomic UTF-8 writes,
+  absolute launcher discovery, marker-fenced routing instructions, and safe
+  uninstall which preserves sibling configuration.
+- ZCode routing: install and enable a dedicated EmbPilot device-debugging skill
+  through ZCode's confirmed `skills` configuration map.
+- installer tests/docs: covered all four target formats, idempotency,
+  local/global support, interaction, invalid markers, JSONC safety, and
+  documented the target path matrix.
+
 ## 0.1.1 (2026-08-07)
 
 ### Added

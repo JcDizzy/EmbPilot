@@ -26,13 +26,48 @@ devices over Serial, Telnet, or SSH.
 ```bash
 pip install embpilot        # core: Serial/Telnet/SSH MCP server
 pip install embpilot[rag]   # + optional local RAG (fastembed + LanceDB)
+embpilot install            # detect and configure supported agent harnesses
 embpilot --help
 ```
+
+`embpilot install` follows the explicit installer model used by agent tooling
+such as CodeGraph. It detects supported harnesses, lets you select targets and
+global/local scope, then idempotently installs MCP config and a marker-fenced
+EmbPilot routing block where the harness supports one. Existing instructions
+and other MCP servers are preserved. Run `embpilot uninstall` to remove only
+content managed by EmbPilot.
 
 Run `embpilot doctor` for
 environment diagnostics (Python, core/RAG deps, drivers, storage, serial ports).
 The plain `embpilot` command starts the MCP stdio server and waits for an MCP
 client; it is not an interactive shell.
+
+To configure another project without changing directories:
+
+```bash
+embpilot install --project-dir path/to/project
+```
+
+Non-interactive examples:
+
+```bash
+embpilot install --target claude,codex,zcode,opencode --location global
+embpilot install --target claude,opencode --location local --project-dir .
+embpilot install --yes  # auto-detect targets, global scope
+```
+
+Supported installation surfaces:
+
+| Harness | Global | Local project |
+| --- | --- | --- |
+| Claude Code | `~/.claude.json`, `~/.claude/CLAUDE.md` | `.mcp.json`, `.claude/CLAUDE.md` |
+| Codex | `~/.codex/config.toml`, `~/.codex/AGENTS.md` | Not supported |
+| ZCode | `~/.zcode/cli/config.json` + registered EmbPilot skill | Not supported |
+| OpenCode | `~/.config/opencode/opencode.jsonc`, `AGENTS.md` | `opencode.jsonc`, `AGENTS.md` |
+
+OpenCode follows `XDG_CONFIG_HOME` when set. ZCode installs its confirmed MCP
+entry plus an enabled `embpilot-device-debugging` skill; no unverified global
+instruction path is written.
 
 ## MCP Client Configuration
 

@@ -18,6 +18,10 @@ runtime transport architecture.
   envelopes. Keep malformed arguments and unknown tools as MCP protocol errors.
 - Add a repository skill that directs agents to use EmbPilot first for Serial,
   SSH, and Telnet tasks and documents the JSON contract and safety rules.
+- Provide explicit, idempotent `embpilot install` / `embpilot uninstall`
+  commands with target adapters for Claude Code, Codex, ZCode, and OpenCode.
+  Each adapter manages only its EmbPilot MCP entry and marker-fenced routing
+  block without overwriting unrelated user content.
 - Synchronize README, contributor guidance, progress, and change log.
 - Preserve existing security defaults, especially SSH host-key verification
   and explicit confirmation for dangerous actions.
