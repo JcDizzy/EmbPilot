@@ -3,6 +3,15 @@
 ## 0.1.0 (unreleased)
 
 ### Added
+- CLI mode: `embpilot tools`, `embpilot tool <name> --json '<args>'` (one-shot),
+  and `embpilot shell` (interactive REPL). The CLI reuses the MCP dispatch
+  layer, so every advertised tool behaves identically outside MCP.
+- One-shot exit-code contract (0 success / 1 tool failure / 2 usage or argument
+  error) and `--json-output` for the structured `ok`/`data`/`error` envelope.
+
+### Changed
+- CLI entry point restructured into subcommands; `embpilot` with no arguments
+  still starts the MCP stdio server (backward compatible).
 - Protocol-specific MCP tools for Serial, SSH, and Telnet with strict JSON
   Schemas, defaults, examples, and unknown-field rejection.
 - Structured MCP success/error envelopes with stable error codes, retryability,

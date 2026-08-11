@@ -31,6 +31,29 @@ pip install "embpilot[rag]"
 EmbPilot is a stdio MCP server, so starting `embpilot` directly waits for an
 MCP client rather than opening an interactive terminal.
 
+## Command Line Interface
+
+`embpilot` starts the stdio MCP server by default, and also exposes every MCP
+tool through a thin CLI that shares the exact same dispatch layer:
+
+```bash
+embpilot tools                      # list available tools
+embpilot tool connect_serial --json '{"port":"COM3","baudrate":115200}'
+embpilot tool send_command --json '{"command":"help","line_ending":"crlf"}'
+embpilot tool list_sessions
+embpilot shell                      # interactive REPL with a persistent session
+```
+
+One-shot tool calls exit `0` on success, `1` on tool failure, and `2` on usage
+or argument errors. Pass `--json-output` to print the structured
+`ok`/`data`/`error` envelope instead of readable text. In the shell, connect
+once and then keep issuing tool calls against the same active session. Data
+path options (`--data-dir`, etc.) must appear before the subcommand:
+
+```bash
+embpilot --data-dir ./.embpilot-data tool list_sessions
+```
+
 ## MCP Client Configuration
 
 Configure the client to start the installed executable; do not copy a
@@ -71,6 +94,9 @@ alongside readable text. SSH host-key verification is enabled by default.
 ```
 src/embpilot/
 ├── __main__.py        # CLI entry point
+├── cli.py             # CLI subcommands: tools, one-shot tool calls
+├── cli_shell.py       # Interactive REPL reusing the MCP dispatch layer
+├── cli_format.py      # Terminal result formatting
 ├── config.py          # Configuration (XDG paths, framing timeout)
 ├── server.py          # MCP Tools / Resources / Prompts registration
 ├── core/

@@ -1,5 +1,29 @@
 # Progress
 
+## 2026-08-11 — CLI mode
+
+### Done
+- Added a thin CLI over the existing MCP dispatch layer (`dispatch_tool` +
+  `build_tool_definitions`), so all advertised tools work outside MCP.
+- `embpilot tools` lists the tool catalog; `embpilot tool <name> --json '<args>'`
+  runs one tool in a fresh session; `embpilot shell` keeps one `SessionManager`
+  alive for a persistent connection.
+- Exit codes: 0 success, 1 tool failure, 2 usage/argument error; `--json-output`
+  prints the structured `ok`/`data`/`error` envelope.
+- REPL reads piped stdin with explicit UTF-8 (BOM-aware) decoding so PowerShell
+  pipes on Chinese Windows no longer corrupt the first line.
+- Tests: CLI bootstrap, tool catalog, one-shot success/failure/usage paths, and
+  REPL behavior with a fake session manager.
+
+### Current status
+- Phase 1 (one-shot) and Phase 2 (shell) implemented; full suite green.
+
+### Known issues / pitfalls
+- Data-path flags (`--data-dir` etc.) must appear before the subcommand, e.g.
+  `embpilot --data-dir X tool list_sessions`.
+- One-shot mode cannot resume a connection across invocations; use `shell` for
+  a persistent session.
+
 ## 2026-08-06 — Agent-first MCP contract
 
 ### Done
