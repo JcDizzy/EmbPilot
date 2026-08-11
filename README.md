@@ -47,7 +47,9 @@ embpilot shell                      # interactive REPL with a persistent session
 One-shot tool calls exit `0` on success, `1` on tool failure, and `2` on usage
 or argument errors. Pass `--json-output` to print the structured
 `ok`/`data`/`error` envelope instead of readable text. In the shell, connect
-once and then keep issuing tool calls against the same active session. Data
+once and then keep issuing tool calls against the same active session.
+`monitor` streams new device log lines (prefixed `[log]`) while commands stay
+usable (results prefixed `[cmd]`); type `stop` to leave monitor mode. Data
 path options (`--data-dir`, etc.) must appear before the subcommand:
 
 ```bash

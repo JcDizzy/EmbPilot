@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from embpilot.cli_shell import shell_loop
@@ -11,6 +13,7 @@ from embpilot.core.commands import CommandResult
 class FakeManager:
     def __init__(self) -> None:
         self.connected = False
+        self.active_ring = None
         self.sent: list[str] = []
         self.sessions: list[dict] = []
 
@@ -118,3 +121,51 @@ async def test_shell_strips_utf8_bom_from_first_line(capsys) -> None:
     captured = capsys.readouterr().out
     assert "unknown tool" not in captured
     assert "Found 0 session(s)." in captured
+@pytest.mark.asyncio
+async def test_monitor_streams_logs_and_prefixes_commands(capsys) -> None:
+    from datetime import datetime, timezone
+
+    from embpilot.core.engine import LogLine, RingBuffer
+
+    manager = FakeManager()
+    ring = RingBuffer()
+    manager.active_ring = ring
+    queue: asyncio.Queue[str] = asyncio.Queue()
+
+    async def read_line() -> str:
+        return await queue.get()
+
+    async def feeder() -> None:
+        await queue.put("monitor")
+        await asyncio.sleep(0.25)
+        ring.push(LogLine(datetime.now(timezone.utc), "hello from device"))
+        await asyncio.sleep(0.25)
+        await queue.put('send_command {"command": "x"}')
+        await asyncio.sleep(0.15)
+        await queue.put("stop")
+        await queue.put("exit")
+
+    await asyncio.gather(shell_loop(manager, read_line=read_line), feeder())
+
+    out = capsys.readouterr().out
+    assert "[log] [" in out and "hello from device" in out
+    assert "[cmd] out:x" in out
+    assert "monitor off" in out
+
+
+@pytest.mark.asyncio
+async def test_monitor_requires_active_connection(capsys) -> None:
+    manager = FakeManager()
+    await _run_loop(manager, ["monitor", "exit"])
+
+    out = capsys.readouterr().out
+    assert "monitor needs an active device connection" in out
+
+
+@pytest.mark.asyncio
+async def test_stop_without_monitor_reports_not_running(capsys) -> None:
+    manager = FakeManager()
+    await _run_loop(manager, ["stop", "exit"])
+
+    out = capsys.readouterr().out
+    assert "monitor is not running" in out

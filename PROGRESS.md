@@ -12,6 +12,9 @@
   prints the structured `ok`/`data`/`error` envelope.
 - REPL reads piped stdin with explicit UTF-8 (BOM-aware) decoding so PowerShell
   pipes on Chinese Windows no longer corrupt the first line.
+- `embpilot shell` gained a background `monitor` command that streams new device
+  log lines (`[log]` prefix) while tool calls stay usable (`[cmd]` prefix);
+  `stop` exits monitor mode.
 - Tests: CLI bootstrap, tool catalog, one-shot success/failure/usage paths, and
   REPL behavior with a fake session manager.
 - Hardened the shared contract/CLI layer against mcp SDK 2.x field renames

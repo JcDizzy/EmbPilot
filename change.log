@@ -8,6 +8,9 @@
   layer, so every advertised tool behaves identically outside MCP.
 - One-shot exit-code contract (0 success / 1 tool failure / 2 usage or argument
   error) and `--json-output` for the structured `ok`/`data`/`error` envelope.
+- Background `monitor` mode in `embpilot shell`: new device log lines stream as
+  `[log]` while tool calls stay usable (results prefixed `[cmd]`); `stop`
+  exits monitoring.
 
 ### Changed
 - CLI entry point restructured into subcommands; `embpilot` with no arguments
