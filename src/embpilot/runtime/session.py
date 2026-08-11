@@ -202,28 +202,6 @@ class SessionManager:
             formatted = "\n".join(line.formatted() for line in lines)
             return formatted or "(no output captured)"
 
-    async def reset_target(self, method: str = "reboot", confirm: bool = False) -> str:
-        if method != "reboot":
-            raise ValueError(
-                f"Unsupported reset method: {method!r} (only 'reboot' is supported)"
-            )
-        async with self._command_lock:
-            if self._device is None:
-                raise RuntimeError("No active device connection")
-            if not confirm:
-                raise PermissionError("reset_target requires confirm=true")
-            # reset_target sends a fixed, complete reboot instruction including the
-            # line terminator; send_command instead leaves termination to the caller.
-            await self._device.write(b"reboot\n")
-            if self._session_info is not None:
-                await self._main_db.insert_operation(
-                    actor="AI",
-                    action_type="call_tool",
-                    detail={"tool": "reset_target", "method": method, "confirm": confirm},
-                    session_id=self._session_info.session_id,
-                )
-            return "Reset command sent (reboot)."
-
     async def disconnect_device(self) -> None:
         if self._device is None:
             return

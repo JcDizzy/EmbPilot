@@ -10,7 +10,7 @@ devices over Serial, Telnet, or SSH.
 
 - **Connect** to devices via Serial UART, Telnet, or SSH
 - **Send commands** and capture output with regular-expression interception (Expect)
-- **Reset targets** by issuing a reboot to the connected device
+- **Send arbitrary commands**, including device-specific reboot commands
 - **Guard risky operations** with dangerous-command confirmation, delete
   confirmation, redacted audit history, rate limiting, and bounded exports
 - **Expose active-session resources** through MCP, including `device://live_log`
@@ -122,8 +122,8 @@ Safety defaults:
 
 - SSH uses AsyncSSH host-key defaults unless `known_hosts: null` is explicitly
   passed in the connection config.
-- Destructive actions such as `reset_target`, dangerous commands, session
-  deletion, and RAG document deletion require explicit confirmation flags.
+- Destructive actions such as dangerous commands, session deletion, and RAG
+  document deletion require explicit confirmation flags.
 - Operation audit export redacts sensitive config keys and inline command
   secrets such as passwords, tokens, Authorization headers, and AT Wi-Fi
   passwords.

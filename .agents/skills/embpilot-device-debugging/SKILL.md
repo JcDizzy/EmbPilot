@@ -28,6 +28,10 @@ EmbPilot's session history, safety checks, and structured results.
    stop condition. Use history tools for previous sessions and exports.
 6. Call `disconnect_device` when finished, including after timeout or error.
 
+To reboot a device, use `send_command` with the command supported by that
+device, for example `reboot`, an explicit line ending such as `lf`, and
+`confirm_dangerous_command: true` after the user authorizes the operation.
+
 ## Connection JSON
 
 Serial:
@@ -54,6 +58,6 @@ Telnet:
   user explicitly accepts that risk.
 - Supply `confirm_dangerous_command: true` only after the user authorizes a
   command EmbPilot classifies as dangerous.
-- Supply `confirm: true` for reset or deletion only when that destructive
-  action is clearly requested.
+- Supply `confirm: true` for session or document deletion only when that
+  destructive action is clearly requested.
 - Never echo passwords, tokens, or private-key contents into chat or logs.

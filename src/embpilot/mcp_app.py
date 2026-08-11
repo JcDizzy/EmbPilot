@@ -243,29 +243,6 @@ def build_tool_catalog(config: EmbPilotConfig | None = None) -> list[Tool]:
             },
         ),
         Tool(
-            name="reset_target",
-            description=(
-                "Reset the active device. Only the 'reboot' method is currently supported."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "method": {
-                        "type": "string",
-                        "enum": ["reboot"],
-                        "default": "reboot",
-                    },
-                    "confirm": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": "Must be true to reset the active target.",
-                    },
-                },
-                "required": ["confirm"],
-                "additionalProperties": False,
-            },
-        ),
-        Tool(
             name="disconnect_device",
             description="Disconnect the active device and close the session.",
             inputSchema={
@@ -542,12 +519,6 @@ async def _execute_tool(
             ),
         )
         return [TextContent(type="text", text=output)]
-    if name == "reset_target":
-        message = await manager.reset_target(
-            method=arguments.get("method", "reboot"),
-            confirm=arguments["confirm"],
-        )
-        return [TextContent(type="text", text=message)]
     if name == "disconnect_device":
         await manager.disconnect_device()
         return [TextContent(type="text", text="Disconnected.")]

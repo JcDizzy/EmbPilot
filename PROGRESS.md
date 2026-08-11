@@ -1,5 +1,19 @@
 # Progress
 
+## 2026-08-11 — remove redundant reset tool
+
+### Done
+- Removed the public `reset_target` MCP tool and its dedicated
+  `SessionManager.reset_target()` method.
+- Reused `send_command` as the single device command path, including for
+  device-specific reboot commands with line-ending selection, dangerous-command
+  confirmation, timeout handling, output capture, and audit logging.
+- Synchronized the MCP specification, README, and agent skills with the
+  simplified command surface.
+- Removed obsolete reset schema/runtime tests while retaining the dangerous
+  command regression coverage for `reboot`.
+- Verification after the API cleanup passed with `147 passed, 1 skipped`.
+
 ## 2026-08-11 — multi-harness agent installer
 
 ### Done

@@ -147,7 +147,6 @@ def test_build_tool_catalog_lists_core_tools() -> None:
         "connect_ssh",
         "connect_telnet",
         "send_command",
-        "reset_target",
         "disconnect_device",
     } <= names
     assert "connect_device" not in names
@@ -228,16 +227,6 @@ def test_tool_schemas_reject_extra_properties() -> None:
     tools = build_tool_catalog()
 
     assert all(tool.inputSchema.get("additionalProperties") is False for tool in tools)
-
-
-def test_reset_target_schema_excludes_dtr_and_rts() -> None:
-    from embpilot.mcp_app import build_tool_catalog
-
-    tool = next(t for t in build_tool_catalog() if t.name == "reset_target")
-    method_schema = tool.inputSchema["properties"]["method"]
-
-    assert method_schema.get("enum") == ["reboot"]
-    assert "confirm" in tool.inputSchema["required"]
 
 
 def test_ssh_known_hosts_schema_documents_explicit_opt_out() -> None:

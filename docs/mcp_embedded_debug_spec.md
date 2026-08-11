@@ -12,7 +12,7 @@ MCP 服务器通过三大支柱（Tools, Resources, Prompts）向 AI 暴露底�
 * **`connect_device(interface_type, config)`**：建立硬件连接。支持 `serial`（参数：端口号、波特率）及 `telnet/ssh`（参数：IP、端口、用户名/密码）。
 * **`disconnect_device()`**：主动断开连接，释放系统串口或网络句柄。
 * **`send_command(command, expect_regex, timeout_ms, line_ending, confirm_dangerous_command)`**：向设备发送指令（如 `help`, `ifconfig`）。支持传入正则表达式 `expect_regex`；返回值应是该条命令窗口内采集到的输出，在本地匹配成功后立即截断返回，若未匹配则在超时点返回已收集窗口内容，以优化响应时间并避免把无关刷屏日志混进结果。`line_ending` 支持 `as-is`、`none`、`lf`、`crlf`、`cr`，用于适配不同 bootloader、AT shell、Linux shell 对命令结束符的要求。匹配危险命令模式时必须显式传入 `confirm_dangerous_command=true`。
-* **`reset_target(method, confirm)`**：复位目标板。当前仅支持 `reboot`（向设备发送 reboot 文本命令），且必须传入 `confirm=true`；DTR/RTS 引脚电平控制在 runtime 真正支持前不纳入公共接口，避免发布无法兑现的复位能力。
+* 设备复位不提供专用工具。应使用 **`send_command(command, expect_regex, timeout_ms, line_ending, confirm_dangerous_command)`** 发送目标设备实际支持的复位命令，例如 `reboot`；危险命令必须显式传入 `confirm_dangerous_command=true`。
 * **`list_sessions()`**：列出所有已记录的会话（按时间倒序），含 `session_id`、接口、设备名、起止时间、状态等。
 * **`delete_session(session_id, confirm)`**：删除某个历史会话的数据库文件与索引记录。活动会话不可删除（须先 `disconnect_device`），且必须传入 `confirm=true`；删除路径必须位于 EmbPilot 托管的 session 数据目录内。
 * **`search_history_logs(session_id, keyword, mode, ...)`**：在指定会话（活动或历史）的日志中按关键字搜索，可选 `time_window_seconds`（仅对活动会话有意义）。`mode` 默认为 `fts`，使用 SQLite FTS5 token/phrase 检索；也可传入 `substring` 做字面子串匹配，适配寄存器名、路径、错误码片段等 FTS 分词不直观的场景。结果为 JSON。
