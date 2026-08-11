@@ -13,15 +13,26 @@
   distinct JSON, TOML, nested JSON, and JSONC configuration shapes.
 - ZCode installs and registers an enabled `embpilot-device-debugging` skill as
   its routing hook because no global instruction-file convention was found.
+- Extended routing to a dual-layer design for Claude Code, Codex, and OpenCode:
+  a short marker-fenced hook stays always visible while a packaged detailed
+  skill provides the full workflow only for relevant device tasks.
+- Added native global/local skill paths for all supported harnesses. ZCode keeps
+  its explicit config registration because it has no verified instruction path.
+- Safe uninstall now removes unmodified EmbPilot skills and empty owned skill
+  directories, but preserves user-modified skills and unrelated sibling files.
+- Moved the detailed skill into package data and added clean-install coverage so
+  PyPI artifacts cannot silently omit it.
 - Split installer ownership across `agent_install/files.py`, `targets.py`,
   `installer.py`, and `cli.py` so harness-specific paths do not leak into the
   top-level CLI or MCP runtime.
 - Installer writes the absolute running EmbPilot launcher where possible,
   avoiding GUI harness PATH differences.
 - Added safe uninstall, idempotency, sibling-config preservation, local/global
-  routing, alias, interactive-flow, JSONC refusal, and trailing-comma tests.
-- Final verification passed with `145 passed, 1 skipped`; the suite includes a
-  clean-install import check for the packaged `embpilot.agent_install` module.
+  routing, alias, interactive-flow, JSONC refusal, trailing-comma, dual-layer
+  skill, modified-skill preservation, and safe directory-cleanup tests.
+- Final verification passed with `151 passed, 1 skipped`; the suite includes
+  clean-install checks for the packaged `embpilot.agent_install` module, SQL
+  schemas, and detailed agent skill resource.
 
 ### Pitfalls
 - Python package installation must not silently mutate whichever directory

@@ -233,7 +233,7 @@ def test_installed_console_script_prints_version(tmp_path: Path) -> None:
     assert result.stdout.strip() == f"embpilot {__version__}"
 
 
-def test_installed_package_includes_sql_schema_files(tmp_path: Path) -> None:
+def test_installed_package_includes_runtime_resource_files(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     venv_dir = tmp_path / "venv"
     if sys.version_info >= (3, 11):
@@ -282,8 +282,11 @@ def test_installed_package_includes_sql_schema_files(tmp_path: Path) -> None:
                 "from pathlib import Path; "
                 "import sys; "
                 "package_dir = Path(find_spec('embpilot').submodule_search_locations[0]); "
-                "missing = [name for name in ('schema_main.sql', 'schema_session.sql') "
-                "if not (package_dir / 'core' / name).is_file()]; "
+                "expected = (package_dir / 'core' / 'schema_main.sql', "
+                "package_dir / 'core' / 'schema_session.sql', "
+                "package_dir / 'agent_install' / 'assets' / "
+                "'embpilot-device-debugging' / 'SKILL.md'); "
+                "missing = [str(path) for path in expected if not path.is_file()]; "
                 "sys.exit('\\n'.join(missing) if missing else 0)"
             ),
         ],
@@ -294,7 +297,7 @@ def test_installed_package_includes_sql_schema_files(tmp_path: Path) -> None:
     )
 
     assert locate_result.returncode == 0, (
-        "Missing packaged SQL schema files:\n"
+        "Missing packaged runtime resource files:\n"
         f"{locate_result.stderr or locate_result.stdout}"
     )
 

@@ -34,18 +34,13 @@ for capabilities EmbPilot provides. Fall back only when unavailable or missing
 the required capability, and explain the fallback.
 {SECTION_END}"""
 
-ZCODE_SKILL = """---
-name: embpilot-device-debugging
-description: Use EmbPilot for Serial/UART, SSH, Telnet, firmware console, boot log, and embedded-device debugging tasks.
----
-
-# EmbPilot Device Debugging
-
-Use EmbPilot MCP before raw serial, SSH, Telnet, or custom socket tools. Connect
-with exactly one of `connect_serial`, `connect_ssh`, or `connect_telnet`, then
-use `send_command`, resources, and history tools. Fall back only when EmbPilot
-is unavailable or lacks the required capability, and explain the fallback.
-"""
+SKILL_NAME = "embpilot-device-debugging"
+EMBPILOT_SKILL = (
+    Path(__file__).parent
+    / "assets"
+    / SKILL_NAME
+    / "SKILL.md"
+).read_text(encoding="utf-8")
 
 
 @dataclass(frozen=True)
@@ -101,6 +96,20 @@ def _remove_instruction(path: Path) -> FileResult:
     )
 
 
+def _install_skill(path: Path) -> FileResult:
+    return upsert_owned_file(path, EMBPILOT_SKILL)
+
+
+def _remove_skill(path: Path) -> FileResult:
+    result = remove_owned_file(path, EMBPILOT_SKILL)
+    if result.action == "removed":
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
+    return result
+
+
 class ClaudeTarget:
     id = "claude"
     display_name = "Claude Code"
@@ -110,8 +119,22 @@ class ClaudeTarget:
 
     def _paths(self, context: InstallContext, location: Location) -> tuple[Path, Path]:
         if location == "global":
-            return context.home_dir / ".claude.json", context.home_dir / ".claude" / "CLAUDE.md"
-        return context.project_dir / ".mcp.json", context.project_dir / ".claude" / "CLAUDE.md"
+            return (
+                context.home_dir / ".claude.json",
+                context.home_dir / ".claude" / "CLAUDE.md",
+            )
+        return (
+            context.project_dir / ".mcp.json",
+            context.project_dir / ".claude" / "CLAUDE.md",
+        )
+
+    def _skill(self, context: InstallContext, location: Location) -> Path:
+        root = (
+            context.home_dir / ".claude"
+            if location == "global"
+            else context.project_dir / ".claude"
+        )
+        return root / "skills" / SKILL_NAME / "SKILL.md"
 
     def detect(self, context: InstallContext, location: Location) -> bool:
         if location == "global":
@@ -126,12 +149,20 @@ class ClaudeTarget:
     def install(self, context: InstallContext, location: Location) -> TargetReport:
         config, instructions = self._paths(context, location)
         entry = {"command": context.server_command, "args": []}
-        files = (upsert_json_value(config, ("mcpServers", "embpilot"), entry), _instruction_result(instructions))
+        files = (
+            upsert_json_value(config, ("mcpServers", "embpilot"), entry),
+            _instruction_result(instructions),
+            _install_skill(self._skill(context, location)),
+        )
         return TargetReport(self.id, self.display_name, files)
 
     def uninstall(self, context: InstallContext, location: Location) -> TargetReport:
         config, instructions = self._paths(context, location)
-        files = (remove_json_value(config, ("mcpServers", "embpilot")), _remove_instruction(instructions))
+        files = (
+            remove_json_value(config, ("mcpServers", "embpilot")),
+            _remove_instruction(instructions),
+            _remove_skill(self._skill(context, location)),
+        )
         return TargetReport(self.id, self.display_name, files)
 
 
@@ -154,6 +185,7 @@ class CodexTarget:
                 {"command": context.server_command, "args": []},
             ),
             _instruction_result(root / "AGENTS.md"),
+            _install_skill(root / "skills" / SKILL_NAME / "SKILL.md"),
         )
         return TargetReport(self.id, self.display_name, files)
 
@@ -162,6 +194,7 @@ class CodexTarget:
         files = (
             remove_toml_table(root / "config.toml", "mcp_servers.embpilot"),
             _remove_instruction(root / "AGENTS.md"),
+            _remove_skill(root / "skills" / SKILL_NAME / "SKILL.md"),
         )
         return TargetReport(self.id, self.display_name, files)
 
@@ -182,7 +215,7 @@ class ZCodeTarget:
             / ".zcode"
             / "cli"
             / "skills"
-            / "embpilot-device-debugging"
+            / SKILL_NAME
             / "SKILL.md"
         )
 
@@ -194,7 +227,7 @@ class ZCodeTarget:
         skill_path = self._skill(context)
         files = (
             upsert_json_value(self._config(context), ("mcp", "servers", "embpilot"), entry),
-            upsert_owned_file(skill_path, ZCODE_SKILL),
+            _install_skill(skill_path),
             upsert_json_value(
                 self._config(context),
                 ("skills", skill_path.as_posix()),
@@ -208,7 +241,7 @@ class ZCodeTarget:
         files = (
             remove_json_value(self._config(context), ("mcp", "servers", "embpilot")),
             remove_json_value(self._config(context), ("skills", skill_path.as_posix())),
-            remove_owned_file(skill_path, ZCODE_SKILL),
+            _remove_skill(skill_path),
         )
         return TargetReport(self.id, self.display_name, files)
 
@@ -235,6 +268,13 @@ class OpenCodeTarget:
             return json_file
         return jsonc
 
+    def _skill(self, context: InstallContext, location: Location) -> Path:
+        if location == "local":
+            root = context.project_dir / ".opencode"
+        else:
+            root = self._root(context, location)
+        return root / "skills" / SKILL_NAME / "SKILL.md"
+
     def detect(self, context: InstallContext, location: Location) -> bool:
         root = self._root(context, location)
         if location == "global":
@@ -248,6 +288,7 @@ class OpenCodeTarget:
         files = (
             upsert_json_value(config, ("mcp", "embpilot"), entry),
             _instruction_result(self._root(context, location) / "AGENTS.md"),
+            _install_skill(self._skill(context, location)),
         )
         return TargetReport(self.id, self.display_name, files)
 
@@ -255,6 +296,7 @@ class OpenCodeTarget:
         files = (
             remove_json_value(self._config(context, location), ("mcp", "embpilot")),
             _remove_instruction(self._root(context, location) / "AGENTS.md"),
+            _remove_skill(self._skill(context, location)),
         )
         return TargetReport(self.id, self.display_name, files)
 

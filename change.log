@@ -9,6 +9,13 @@
   uninstall which preserves sibling configuration.
 - ZCode routing: install and enable a dedicated EmbPilot device-debugging skill
   through ZCode's confirmed `skills` configuration map.
+- dual-layer routing: Claude Code, Codex, and OpenCode now receive both a short
+  marker-fenced hook and a detailed native `embpilot-device-debugging` skill;
+  ZCode uses the same packaged skill through its explicit registration map.
+- safe skill cleanup: uninstall removes exact EmbPilot-owned skill files and
+  empty skill directories while preserving modified skills and sibling files.
+- package resources: ship the detailed skill in PyPI artifacts and verify it in
+  the clean-install integration test.
 - installer tests/docs: covered all four target formats, idempotency,
   local/global support, interaction, invalid markers, JSONC safety, and
   documented the target path matrix.

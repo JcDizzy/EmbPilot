@@ -12,7 +12,7 @@ from embpilot.agent_install import (
     uninstall_targets,
 )
 from embpilot.agent_install.files import upsert_json_value
-from embpilot.agent_install.targets import SECTION_START
+from embpilot.agent_install.targets import EMBPILOT_SKILL, SECTION_START, SKILL_NAME
 
 
 def _context(tmp_path: Path) -> InstallContext:
@@ -36,6 +36,22 @@ def _seed_detected_targets(context: InstallContext) -> None:
         encoding="utf-8",
     )
     (context.home_dir / ".config" / "opencode").mkdir(parents=True)
+
+
+def _global_skill_paths(context: InstallContext) -> dict[str, Path]:
+    return {
+        "claude": context.home_dir / ".claude" / "skills" / SKILL_NAME / "SKILL.md",
+        "codex": context.home_dir / ".codex" / "skills" / SKILL_NAME / "SKILL.md",
+        "zcode": context.home_dir / ".zcode" / "cli" / "skills" / SKILL_NAME / "SKILL.md",
+        "opencode": (
+            context.home_dir
+            / ".config"
+            / "opencode"
+            / "skills"
+            / SKILL_NAME
+            / "SKILL.md"
+        ),
+    }
 
 
 def test_global_install_configures_all_four_targets_and_preserves_siblings(
@@ -79,16 +95,11 @@ def test_global_install_configures_all_four_targets_and_preserves_siblings(
     )
     assert zcode["mcp"]["servers"]["other"] == {"type": "stdio"}
     assert zcode["mcp"]["servers"]["embpilot"]["type"] == "stdio"
-    skill_path = (
-        context.home_dir
-        / ".zcode"
-        / "cli"
-        / "skills"
-        / "embpilot-device-debugging"
-        / "SKILL.md"
-    )
+    skill_paths = _global_skill_paths(context)
+    skill_path = skill_paths["zcode"]
     assert zcode["skills"][skill_path.as_posix()] == {"enable": True}
-    assert skill_path.exists()
+    for installed_skill in skill_paths.values():
+        assert installed_skill.read_text(encoding="utf-8") == EMBPILOT_SKILL
     open_data = json.loads(opencode.read_text(encoding="utf-8"))
     assert open_data["mcp"]["other"] == {"enabled": True}
     assert open_data["mcp"]["embpilot"]["command"] == [context.server_command]
@@ -134,14 +145,10 @@ def test_global_uninstall_removes_only_embpilot_entries(tmp_path: Path) -> None:
         (context.home_dir / ".zcode" / "cli" / "config.json").read_text(encoding="utf-8")
     )
     assert "embpilot" not in zcode.get("mcp", {}).get("servers", {})
-    assert not (
-        context.home_dir
-        / ".zcode"
-        / "cli"
-        / "skills"
-        / "embpilot-device-debugging"
-        / "SKILL.md"
-    ).exists()
+    for skill_path in _global_skill_paths(context).values():
+        assert not skill_path.exists()
+        assert not skill_path.parent.exists()
+    assert not (context.home_dir / ".codex" / "AGENTS.md").exists()
 
 
 def test_local_install_skips_global_only_targets(tmp_path: Path) -> None:
@@ -157,8 +164,82 @@ def test_local_install_skips_global_only_targets(tmp_path: Path) -> None:
     assert len(summary.skipped) == 2
     assert (context.project_dir / ".mcp.json").exists()
     assert (context.project_dir / ".claude" / "CLAUDE.md").exists()
+    assert (
+        context.project_dir / ".claude" / "skills" / SKILL_NAME / "SKILL.md"
+    ).exists()
     assert (context.project_dir / "opencode.jsonc").exists()
     assert (context.project_dir / "AGENTS.md").exists()
+    assert (
+        context.project_dir / ".opencode" / "skills" / SKILL_NAME / "SKILL.md"
+    ).exists()
+
+    uninstall_targets(context, ("claude", "opencode"), "local")
+
+    assert not (context.project_dir / ".claude" / "CLAUDE.md").exists()
+    assert not (
+        context.project_dir / ".claude" / "skills" / SKILL_NAME
+    ).exists()
+    assert not (context.project_dir / "AGENTS.md").exists()
+    assert not (
+        context.project_dir / ".opencode" / "skills" / SKILL_NAME
+    ).exists()
+
+
+def test_packaged_skill_matches_repository_skill() -> None:
+    repo_skill = (
+        Path(__file__).resolve().parents[1]
+        / ".agents"
+        / "skills"
+        / SKILL_NAME
+        / "SKILL.md"
+    )
+
+    assert repo_skill.read_text(encoding="utf-8") == EMBPILOT_SKILL
+
+
+@pytest.mark.parametrize("target_id", ("claude", "codex", "zcode", "opencode"))
+def test_uninstall_preserves_user_modified_skill(
+    tmp_path: Path,
+    target_id: str,
+) -> None:
+    context = _context(tmp_path)
+    _seed_detected_targets(context)
+    install_targets(context, (target_id,), "global")
+    skill_path = _global_skill_paths(context)[target_id]
+    skill_path.write_text(
+        skill_path.read_text(encoding="utf-8") + "\nUser customization.\n",
+        encoding="utf-8",
+    )
+
+    summary = uninstall_targets(context, (target_id,), "global")
+
+    assert skill_path.exists()
+    assert "User customization." in skill_path.read_text(encoding="utf-8")
+    skill_result = next(
+        file for file in summary.reports[0].files if file.path == skill_path
+    )
+    assert skill_result.action == "unchanged"
+    if target_id == "zcode":
+        config = json.loads(
+            (context.home_dir / ".zcode" / "cli" / "config.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert skill_path.as_posix() not in config.get("skills", {})
+
+
+def test_uninstall_keeps_nonempty_skill_directory(tmp_path: Path) -> None:
+    context = _context(tmp_path)
+    _seed_detected_targets(context)
+    install_targets(context, ("codex",), "global")
+    skill_path = _global_skill_paths(context)["codex"]
+    sibling = skill_path.parent / "notes.md"
+    sibling.write_text("keep\n", encoding="utf-8")
+
+    uninstall_targets(context, ("codex",), "global")
+
+    assert not skill_path.exists()
+    assert sibling.read_text(encoding="utf-8") == "keep\n"
 
 
 def test_auto_target_detection_uses_location_support(tmp_path: Path) -> None:

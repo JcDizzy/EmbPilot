@@ -50,7 +50,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-embpilot = ["core/*.sql"]
+embpilot = ["core/*.sql", "agent_install/assets/*/*.md"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
