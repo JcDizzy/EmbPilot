@@ -14,6 +14,11 @@
   pipes on Chinese Windows no longer corrupt the first line.
 - Tests: CLI bootstrap, tool catalog, one-shot success/failure/usage paths, and
   REPL behavior with a fake session manager.
+- Hardened the shared contract/CLI layer against mcp SDK 2.x field renames
+  (`input_schema`, `structured_content`) via `mcp_compat.py`, so the CLI keeps
+  working even if mcp 2.x is installed.
+- Pinned `mcp>=1.0.0,<2`: the MCP server runtime still uses mcp 1.x
+  decorators, so the global uv tool was reinstalled on mcp 1.29.0.
 
 ### Current status
 - Phase 1 (one-shot) and Phase 2 (shell) implemented; full suite green.
@@ -23,6 +28,8 @@
   `embpilot --data-dir X tool list_sessions`.
 - One-shot mode cannot resume a connection across invocations; use `shell` for
   a persistent session.
+- MCP server mode is mcp 1.x-only until it is migrated to the mcp 2.x server
+  API; the CLI tolerates both 1.x and 2.x.
 
 ## 2026-08-06 — Agent-first MCP contract
 

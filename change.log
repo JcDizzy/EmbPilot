@@ -12,6 +12,12 @@
 ### Changed
 - CLI entry point restructured into subcommands; `embpilot` with no arguments
   still starts the MCP stdio server (backward compatible).
+### Fixed
+- mcp SDK 2.x incompatibility that crashed CLI tool calls
+  (`AttributeError: 'Tool' object has no attribute 'inputSchema'`): the shared
+  contract/CLI layer now resolves `input_schema`/`structured_content` across
+  mcp 1.x and 2.x via `mcp_compat.py`.
+- Pinned `mcp>=1.0.0,<2` (server runtime tracks mcp 1.x; CLI tolerates 2.x).
 - Protocol-specific MCP tools for Serial, SSH, and Telnet with strict JSON
   Schemas, defaults, examples, and unknown-field rejection.
 - Structured MCP success/error envelopes with stable error codes, retryability,

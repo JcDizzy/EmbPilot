@@ -25,6 +25,7 @@ from embpilot.cli_format import format_result
 from embpilot.cli_shell import run_shell
 from embpilot.config import EmbPilotConfig
 from embpilot.mcp_contracts import build_tool_definitions, dispatch_tool
+from embpilot.mcp_compat import result_structured
 
 _JSON_NOTE = "Pass arguments as a JSON object, not as a JSON-encoded string. "
 
@@ -160,7 +161,7 @@ def _run_one_shot(args: argparse.Namespace, config: EmbPilotConfig) -> int:
             await manager.shutdown()
 
         print(format_result(result, json_output=args.json_output))
-        payload = result.structuredContent or {}
+        payload = result_structured(result) or {}
         if payload.get("ok") is True:
             return 0
         code = (payload.get("error") or {}).get("code", "OPERATION_FAILED")

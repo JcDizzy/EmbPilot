@@ -6,13 +6,15 @@ import json
 
 from mcp.types import CallToolResult
 
+from embpilot.mcp_compat import result_structured
+
 # Data keys whose list payloads are worth printing in human-readable mode.
 _DETAIL_KEYS = ("sessions", "results")
 
 
 def format_result(result: CallToolResult, *, json_output: bool) -> str:
     """Render one tool result as text (default) or as structured JSON."""
-    payload = result.structuredContent or {}
+    payload = result_structured(result) or {}
 
     if json_output:
         return json.dumps(payload, ensure_ascii=False, indent=2)

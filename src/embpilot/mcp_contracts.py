@@ -9,6 +9,8 @@ from typing import Any, Protocol
 import jsonschema
 from mcp.types import CallToolResult, TextContent, Tool
 
+from embpilot.mcp_compat import tool_input_schema
+
 from embpilot.core.commands import CommandResult, NoActiveDeviceError
 
 logger = logging.getLogger(__name__)
@@ -368,7 +370,7 @@ async def dispatch_tool(
     tool = next((item for item in build_tool_definitions() if item.name == name), None)
     if tool is not None:
         try:
-            jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+            jsonschema.validate(instance=arguments, schema=tool_input_schema(tool))
         except jsonschema.ValidationError as exc:
             return _failure(
                 "INVALID_ARGUMENT",
