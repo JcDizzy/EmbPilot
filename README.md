@@ -24,11 +24,16 @@ devices over Serial, Telnet, or SSH.
 ## Quick Start
 
 ```bash
-pip install embpilot        # core: Serial/Telnet/SSH MCP server
-pip install embpilot[rag]   # + optional local RAG (fastembed + LanceDB)
+uv tool install embpilot        # core: Serial/Telnet/SSH MCP server
+uv tool install "embpilot[rag]" # + optional local RAG (fastembed + LanceDB)
 embpilot install            # detect and configure supported agent harnesses
 embpilot --help
 ```
+
+`uv tool install` installs EmbPilot into an isolated environment and exposes
+the `embpilot` launcher on your PATH. If you prefer managing EmbPilot inside a
+virtual environment, the equivalent pip commands are
+`pip install embpilot` and `pip install "embpilot[rag]"`.
 
 `embpilot install` follows the explicit installer model used by agent tooling
 such as CodeGraph. It detects supported harnesses, lets you select targets and

@@ -9,6 +9,9 @@
   and audit logging.
 
 [2026-08-11]
+- docs: README Quick Start now defaults to `uv tool install embpilot` and
+  `uv tool install "embpilot[rag]"`, with pip documented as a virtual-env
+  alternative.
 - API cleanup: removed the redundant public `reset_target` tool and runtime
   method; device-specific reboot operations now use `send_command` with the
   existing line-ending, timeout, dangerous-command confirmation, and audit

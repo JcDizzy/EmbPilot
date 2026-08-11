@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-08-11 — default install docs
+
+### Done
+- Updated README Quick Start to recommend `uv tool install embpilot` and
+  `uv tool install "embpilot[rag]"`, keeping pip as the virtual-environment
+  alternative.
+
 ## 2026-08-11 — remove redundant reset tool
 
 ### Done
