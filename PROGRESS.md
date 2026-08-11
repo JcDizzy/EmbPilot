@@ -1,5 +1,11 @@
 # Progress
 
+## 2026-08-11 — publish docs as 0.2.1
+
+### Done
+- Bumped the package to 0.2.1 so the uv-tool installation README reaches PyPI,
+  since PyPI does not allow re-uploading the already published 0.2.0 artifacts.
+
 ## 2026-08-11 — default install docs
 
 ### Done

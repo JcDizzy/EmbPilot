@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.2.1 (2026-08-11)
+
+### Documentation
+- README Quick Start now defaults to `uv tool install embpilot` and
+  `uv tool install "embpilot[rag]"`, with pip documented as a virtual-env
+  alternative.
+
 ## 0.2.0 (2026-08-11)
 
 ### Changed
