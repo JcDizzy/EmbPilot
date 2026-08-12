@@ -20,15 +20,30 @@ from embpilot.installer.targets import (
     Location,
 )
 
+_CANCEL_WORDS = ("q", "quit", "cancel", "esc", "exit")
+
+
+class Cancelled(Exception):
+    """Raised when the user aborts the interactive flow (q/quit, EOF, ESC).
+
+    Ctrl+C surfaces as KeyboardInterrupt; both are handled the same way by
+    the orchestrator: nothing is written and the flow reports "cancelled".
+    """
+
+
+def _is_cancel(raw: str) -> bool:
+    return raw.strip().lower() in _CANCEL_WORDS
+
 
 def make_input_reader(stream: TextIO) -> Callable[[str], str]:
-    """Default interactive reader: print a prompt, read one line."""
+    """Default interactive reader: print a prompt, read one line.
+
+    EOF (Ctrl+D / closed pipe) propagates as EOFError so callers can treat
+    it as a cancellation; Ctrl+C propagates as KeyboardInterrupt.
+    """
 
     def read_line(prompt: str) -> str:
-        try:
-            return input(prompt)
-        except EOFError:
-            return ""
+        return input(prompt)
 
     return read_line
 
@@ -59,16 +74,18 @@ def select_targets(
 
     prompt = (
         f"Select targets to {action} (numbers, comma separated; "
-        "empty = checked above): "
+        "empty = checked above; q = cancel): "
     )
     while True:
         raw = read_line(prompt).strip()
+        if _is_cancel(raw):
+            raise Cancelled()
         if not raw:
             return checked
         try:
             indices = [int(part.strip()) for part in raw.split(",")]
         except ValueError:
-            print("  invalid input — enter numbers separated by commas")
+            print("  invalid input - enter numbers separated by commas")
             continue
         invalid = [i for i in indices if not 1 <= i <= len(detections)]
         if invalid:
@@ -91,12 +108,15 @@ def select_location(
         scopes.append(f"{target.id} ({'/'.join(supports)})")
     print("  scope support: " + ", ".join(scopes))
     while True:
-        raw = read_line("Scope [local/global] (empty = local): ").strip().lower()
+        raw = read_line("Scope [local/global] (empty = local; q = cancel): ")
+        if _is_cancel(raw):
+            raise Cancelled()
+        raw = raw.strip().lower()
         if raw in ("", "local"):
             return "local"
         if raw == "global":
             return "global"
-        print("  invalid scope — enter 'local' or 'global'")
+        print("  invalid scope - enter 'local' or 'global'")
 
 
 def confirm_changes(
@@ -110,9 +130,12 @@ def confirm_changes(
     for change in changes:
         print(f"  {change}")
     while True:
-        raw = read_line("Proceed? [y/N]: ").strip().lower()
+        raw = read_line("Proceed? [y/N] (q = cancel): ")
+        if _is_cancel(raw):
+            raise Cancelled()
+        raw = raw.strip().lower()
         if raw in ("y", "yes"):
             return True
         if raw in ("", "n", "no"):
             return False
-        print("  invalid input — enter y or N")
+        print("  invalid input - enter y or N")

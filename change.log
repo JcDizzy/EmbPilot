@@ -34,6 +34,12 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- Interactive installer cancellations: every prompt accepts `q`/`quit`/
+  `cancel`/`esc`/`exit`, Ctrl+C and EOF (Ctrl+D / closed pipe) cancel the
+  flow cleanly - nothing is written and the CLI reports "cancelled" (exit
+  130 for Ctrl+C in non-interactive mode). EOF no longer falls through to
+  defaults. ASCII punctuation used in all installer output for GBK
+  consoles.
 - Interactive installer mode: `embpilot install` / `uninstall` with no
   `--target` runs a CodeGraph-style picker (zero-dependency, stdlib input):
   detected harnesses are listed pre-checked, targets are selected by number,

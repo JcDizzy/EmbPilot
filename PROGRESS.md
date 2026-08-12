@@ -1,6 +1,20 @@
 # Progress
 
-## 2026-08-12 — interactive installer mode (implemented)
+## 2026-08-12 - interactive installer cancellations (implemented)
+
+### Done
+- Every interactive prompt accepts q/quit/cancel/esc/exit; Ctrl+C and EOF
+  (Ctrl+D / closed pipe) cancel the flow cleanly with "cancelled - nothing
+  written" and zero files written. EOF no longer falls through to defaults
+  (real bug: closed stdin used to mean "select all detected").
+- Cancellation unified via a `Cancelled` exception caught together with
+  KeyboardInterrupt/EOFError in the interactive orchestrator; non-
+  interactive (--yes) Ctrl+C exits 130.
+- All installer output switched to ASCII punctuation (em dashes rendered as
+  garbage in GBK Windows consoles).
+- Full suite: 138 passed, 1 skipped.
+
+## 2026-08-12 - interactive installer mode (implemented)
 
 ### Done
 - `embpilot install` / `uninstall` with no --target now run a CodeGraph-style

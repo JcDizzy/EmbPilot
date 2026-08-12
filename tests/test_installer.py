@@ -422,3 +422,53 @@ def test_interactive_global_only_target_skipped_at_local(project: Path, capsys) 
     joined = "\n".join(lines)
     assert "unsupported at local, skipped" in joined
     assert not (project / ".codex").exists()
+
+
+def test_interactive_q_cancels_target_selection(project: Path) -> None:
+    from embpilot.installer.install import run_interactive_install
+
+    lines = run_interactive_install(read_line=_scripted_reader(["q"]))
+    assert "cancelled - nothing written" in "\n".join(lines)
+    assert not (project / "AGENTS.md").exists()
+
+
+def test_interactive_q_cancels_scope_prompt(project: Path) -> None:
+    from embpilot.installer.install import run_interactive_install
+
+    # Select agents (6), then cancel at the scope prompt.
+    lines = run_interactive_install(read_line=_scripted_reader(["6", "q"]))
+    assert "cancelled - nothing written" in "\n".join(lines)
+    assert not (project / "AGENTS.md").exists()
+
+
+def test_interactive_eof_cancels(project: Path) -> None:
+    """A closed stdin (EOF) must cancel, not fall through to defaults."""
+    from embpilot.installer.install import run_interactive_install
+
+    def eof_reader(prompt: str) -> str:
+        raise EOFError
+
+    lines = run_interactive_install(read_line=eof_reader)
+    assert "cancelled - nothing written" in "\n".join(lines)
+    assert not (project / "AGENTS.md").exists()
+
+
+def test_interactive_ctrl_c_cancels(project: Path) -> None:
+    """KeyboardInterrupt anywhere in the flow must cancel cleanly."""
+    from embpilot.installer.install import run_interactive_install
+
+    def interrupt_reader(prompt: str) -> str:
+        raise KeyboardInterrupt
+
+    lines = run_interactive_install(read_line=interrupt_reader)
+    assert "cancelled - nothing written" in "\n".join(lines)
+    assert not (project / "AGENTS.md").exists()
+
+
+def test_interactive_q_cancels_before_writing(project: Path) -> None:
+    """Cancelling at the confirm prompt must leave zero files behind."""
+    from embpilot.installer.install import run_interactive_install
+
+    lines = run_interactive_install(read_line=_scripted_reader(["6", "", "q"]))
+    assert "cancelled - nothing written" in "\n".join(lines)
+    assert not (project / "AGENTS.md").exists()

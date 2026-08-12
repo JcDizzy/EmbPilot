@@ -546,24 +546,32 @@ def main(argv: Sequence[str] | None = None) -> None:
                     print("\n".join(run_interactive_uninstall()))
                 return
             if args.command == "install":
-                print(
-                    "\n".join(
-                        run_install(
-                            target=args.target or "auto",
-                            location=args.location or "local",
+                try:
+                    print(
+                        "\n".join(
+                            run_install(
+                                target=args.target or "auto",
+                                location=args.location or "local",
+                            )
                         )
                     )
-                )
+                except KeyboardInterrupt:
+                    print("cancelled — nothing written")
+                    raise SystemExit(130)
                 return
             if args.command == "uninstall":
-                print(
-                    "\n".join(
-                        run_uninstall(
-                            target=args.target or "auto",
-                            location=args.location or "local",
+                try:
+                    print(
+                        "\n".join(
+                            run_uninstall(
+                                target=args.target or "auto",
+                                location=args.location or "local",
+                            )
                         )
                     )
-                )
+                except KeyboardInterrupt:
+                    print("cancelled — nothing written")
+                    raise SystemExit(130)
                 return
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
