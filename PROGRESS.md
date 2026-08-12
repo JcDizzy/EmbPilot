@@ -363,3 +363,19 @@
 - Also hardened the throughput test (poll for queue drain; it was flaky
   under full-suite load).
 - Full suite: 146 passed, 1 skipped (twice in a row).
+
+## 2026-08-12 - third review round: Windows pid probe was TerminateProcess
+
+### Done
+- Critical: `_pid_alive` used os.kill(pid, 0), which on Windows is
+  TerminateProcess (CPython semantics) - the idempotent `serve --daemon`
+  re-run was KILLING the running daemon while reporting "already running",
+  and could spawn duplicates (observed 2 daemons live). Replaced with a
+  ctypes OpenProcess + GetExitCodeProcess probe (never os.kill on Windows);
+  POSIX keeps os.kill(pid, 0) with PermissionError treated as alive.
+- `serve --daemon` readiness now probes the endpoint connection
+  (`_endpoint_reachable`) in addition to file presence, so stub/real pid
+  mismatches on Anaconda venvs cannot fake success or failure.
+- Tests: idempotence test now asserts the first daemon stays alive and
+  reachable; new probe-only unit test proves _pid_alive does not kill.
+- Full suite: 147 passed, 1 skipped (stable across 3 runs).

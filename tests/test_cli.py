@@ -458,6 +458,8 @@ def test_serve_daemon_detaches_and_becomes_ready(tmp_path: Path) -> None:
 
 
 def test_serve_daemon_idempotent_when_already_running(tmp_path: Path) -> None:
+    """A second --daemon must NOT kill the running daemon (regression: the
+    Windows pid probe used os.kill, which is TerminateProcess there)."""
     first = _run_cli("serve", "--daemon", data_dir=tmp_path)
     assert first.returncode == 0, first.stderr
     pid = _read_pid(tmp_path / "daemon.pid")
@@ -465,6 +467,20 @@ def test_serve_daemon_idempotent_when_already_running(tmp_path: Path) -> None:
         second = _run_cli("serve", "--daemon", data_dir=tmp_path)
         assert second.returncode == 0, second.stderr
         assert "already running" in second.stdout
+
+        # The first daemon must still be alive and reachable.
+        from embpilot.cli import _pid_alive
+
+        assert _pid_alive(pid), "idempotent re-run killed the running daemon"
+        call = _run_cli(
+            "--socket",
+            str(tmp_path / "daemon.json"),
+            "tool",
+            "list_sessions",
+            "--json-output",
+        )
+        assert call.returncode == 0, call.stderr
+        assert '"ok": true' in call.stdout
     finally:
         _kill_pid(pid)
         time.sleep(1)
@@ -479,3 +495,28 @@ def test_serve_daemon_writes_log_file(tmp_path: Path) -> None:
     finally:
         _kill_pid(pid)
         time.sleep(1)
+
+
+def test_pid_alive_is_probe_only_on_windows() -> None:
+    """The Windows pid probe must never kill the target process."""
+    import subprocess
+
+    from embpilot.cli import _pid_alive
+
+    if sys.platform != "win32":
+        return  # POSIX os.kill(pid, 0) is already a pure probe
+
+    code = "import os, time; print(os.getpid(), flush=True); time.sleep(20)"
+    proc = subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        child = int(proc.stdout.readline().strip())
+        assert _pid_alive(child) is True
+        # The probe must not have terminated the child.
+        assert proc.poll() is None, "pid probe killed the target process"
+    finally:
+        _kill_pid(proc.pid)
+        proc.wait(timeout=10)

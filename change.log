@@ -34,6 +34,20 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- Critical Windows fix: `_pid_alive` never uses `os.kill` on Windows
+  anymore - CPython implements os.kill with TerminateProcess for every
+  signal (sig=0 included), so the old probe actually KILLED the running
+  daemon during the idempotent `serve --daemon` re-run. Now uses
+  OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION) + GetExitCodeProcess
+  (STILL_ACTIVE) via ctypes; POSIX keeps os.kill(pid, 0) and treats
+  PermissionError as alive.
+- `serve --daemon` readiness now requires the endpoint file AND an actual
+  connection probe (`_endpoint_reachable`), not just file presence, so the
+  redirector-stub pid mismatch on Anaconda venvs cannot cause false
+  success/failure.
+- Idempotence regression test now verifies the first daemon survives and
+  stays reachable after the second `--daemon` call; added a probe-only
+  unit test proving `_pid_alive` does not terminate its target.
 - `serve --daemon` (spec 5.2): detaches a serve subprocess into the
   background, writes <data-dir>/daemon.pid + serve.log, waits until the
   endpoint file exists, then exits 0. Idempotent: a second --daemon against

@@ -566,19 +566,22 @@ def _run_serve_daemon(config: EmbPilotConfig, endpoint: str | None) -> int:
         print(f"error: failed to start daemon: {exc}", file=sys.stderr)
         return 1
 
-    # The detached serve process writes daemon.pid itself; wait for the
-    # endpoint file so the caller knows it is actually listening.
+    # The detached serve process writes daemon.pid itself; wait until the
+    # endpoint file exists AND the endpoint actually accepts connections
+    # (on Anaconda venvs the Popen pid is a redirector stub whose lifetime
+    # differs from the real interpreter, so file presence + connectability
+    # is the reliable readiness signal).
     endpoint_file = config.data_dir / "daemon.json"
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
-        if endpoint_file.exists():
+        if endpoint_file.exists() and pid_file.exists():
             try:
                 import json as _json
 
                 info = _json.loads(endpoint_file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 info = None
-            if info and info.get("endpoint"):
+            if info and info.get("endpoint") and _endpoint_reachable(info["endpoint"]):
                 log_file.close()
                 print(f"daemon started (pid {proc.pid})")
                 print(f"endpoint: {info['endpoint']}")
@@ -600,17 +603,61 @@ def _run_serve_daemon(config: EmbPilotConfig, endpoint: str | None) -> int:
     return 1
 
 
-def _pid_alive(pid: int) -> bool:
-    """Best-effort liveness check (no signal is sent on Windows)."""
+def _endpoint_reachable(endpoint: str) -> bool:
+    """Probe whether a daemon endpoint accepts connections (no protocol I/O)."""
+    import socket
+
     try:
-        os.kill(pid, 0)
+        if endpoint.startswith("unix:"):
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(1.0)
+            sock.connect(endpoint[len("unix:") :])
+            sock.close()
+            return True
+        host, _, port = endpoint[len("tcp:") :].rpartition(":")
+        with socket.create_connection((host, int(port)), timeout=1.0):
+            return True
     except OSError:
         return False
-    except SystemError:
-        # Windows: kill(pid, 0) can raise SystemError for existing-but-
-        # inaccessible processes; treat as alive to avoid duplicate daemons.
+    return False
+
+
+def _pid_alive(pid: int) -> bool:
+    """Best-effort liveness check.
+
+    On Windows, ``os.kill`` is NEVER a probe: CPython implements it with
+    ``TerminateProcess`` for every signal (sig=0 included), so probing with
+    it would kill the daemon. Use OpenProcess + GetExitCodeProcess instead.
+    """
+    if sys.platform == "win32":
+        return _win_pid_alive(pid)
+    try:
+        os.kill(pid, 0)
         return True
-    return True
+    except PermissionError:
+        # Process exists but is not owned by us.
+        return True
+    except OSError:
+        return False
+
+
+def _win_pid_alive(pid: int) -> bool:
+    """Side-effect-free liveness probe for Windows."""
+    import ctypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def args_data_dir_flag(config: EmbPilotConfig) -> bool:
