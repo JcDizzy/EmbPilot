@@ -59,11 +59,6 @@ class EmbPilotConfig:
     # ── Logging ─────────────────────────────────────────────────────
     log_level: str = "INFO"
 
-    # ── Connection defaults ─────────────────────────────────────────
-    serial_baudrate_default: int = 115200
-    serial_timeout_default: float = 5.0
-    network_timeout_default: float = 10.0
-
     def __post_init__(self) -> None:
         if self.main_db_path is None:
             self.main_db_path = self.data_dir / "embpilot_main.db"

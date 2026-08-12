@@ -354,6 +354,24 @@ def test_socket_unknown_endpoint_file_exits_2(tmp_path: Path) -> None:
     assert "cannot read daemon endpoint file" in completed.stderr
 
 
+def test_socket_dead_daemon_fails_cleanly_without_traceback(tmp_path: Path) -> None:
+    """A reachable endpoint file but a dead daemon must not traceback."""
+    endpoint_file = tmp_path / "daemon.json"
+    endpoint_file.write_text(
+        '{"endpoint": "tcp:127.0.0.1:59999"}', encoding="utf-8"
+    )
+    completed = _run_cli(
+        "--socket",
+        str(endpoint_file),
+        "tool",
+        "list_sessions",
+    )
+
+    assert completed.returncode == 1
+    assert "cannot reach daemon" in completed.stderr
+    assert "Traceback" not in completed.stderr
+
+
 def test_shell_accepts_utf8_bom_piped_stdin(tmp_path: Path) -> None:
     """PowerShell pipes native stdin with a UTF-8 BOM; the shell must cope."""
     completed = subprocess.run(

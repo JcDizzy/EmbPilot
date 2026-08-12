@@ -263,6 +263,7 @@ class DbConsumer:
         self._flush_interval = flush_interval_s
         self._consume_task: Optional[asyncio.Task[None]] = None
         self._flush_task: Optional[asyncio.Task[None]] = None
+        self._flush_tasks: list[asyncio.Task[None]] = []
         self._running = False
 
     def start(self) -> None:
@@ -295,7 +296,11 @@ class DbConsumer:
         """
         self._batch.append(line)
         if len(self._batch) >= self._batch_size:
-            asyncio.create_task(self._flush_batch())
+            # Keep a strong reference: asyncio may otherwise garbage-collect
+            # a pending task before it runs (documented pitfall).
+            task = asyncio.create_task(self._flush_batch())
+            self._flush_tasks.append(task)
+            task.add_done_callback(self._flush_tasks.remove)
 
     async def _consume_loop(self) -> None:
         """Read lines from the queue and accumulate them into batches."""

@@ -279,3 +279,47 @@ async def test_session_info_without_connection_is_graceful(tmp_path: Path) -> No
         assert payload == "No active device connection."
     finally:
         await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_reset_target_respects_session_line_ending(tmp_path: Path) -> None:
+    device = EchoDevice()
+    config = EmbPilotConfig(data_dir=tmp_path)
+    config.ensure_data_dirs()
+    manager = SessionManager(config, device_factory=lambda _i, _c: device)
+    await manager.start()
+    try:
+        await manager.connect_device("serial", {"port": "COM3", "line_ending": "crlf"})
+        message = await manager.reset_target("reboot")
+        assert message == "Reboot command sent"
+        assert device.writes[-1] == b"reboot\r\n"
+    finally:
+        print("DEBUG: shutdown start", flush=True)
+        await manager.shutdown()
+        print("DEBUG: shutdown done", flush=True)
+
+
+@pytest.mark.asyncio
+async def test_export_and_delete_session_round_trip(tmp_path: Path) -> None:
+    device = EchoDevice()
+    config = EmbPilotConfig(data_dir=tmp_path)
+    config.ensure_data_dirs()
+    manager = SessionManager(config, device_factory=lambda _i, _c: device)
+    await manager.start()
+    try:
+        session_id = await manager.connect_device("serial", {"port": "COM3"})
+        await manager.disconnect_device()
+
+        sessions = await manager.list_sessions()
+        assert any(s["session_id"] == session_id for s in sessions)
+
+        exported = await manager.export_session(
+            session_id, tmp_path / "exports" / "out.db"
+        )
+        assert exported.exists()
+
+        await manager.delete_session(session_id)
+        sessions = await manager.list_sessions()
+        assert all(s["session_id"] != session_id for s in sessions)
+    finally:
+        await manager.shutdown()

@@ -196,10 +196,18 @@ class SessionManager:
         ds = self._active
         sid = ds.session_id
 
-        # Stop background tasks
+        # Stop background tasks. A cancelled task must never wedge the
+        # disconnect path (asyncio wait_for + cancel + feed_data races on the
+        # Windows proactor loop can delay a task's cancellation delivery), so
+        # bound the wait and log any stragglers instead of hanging forever.
         for t in self._background_tasks:
             t.cancel()
-        await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        _done, pending = await asyncio.wait(self._background_tasks, timeout=2.0)
+        if pending:
+            logger.warning(
+                "Background tasks did not stop within 2s: %s",
+                [t.get_name() for t in pending],
+            )
         self._background_tasks.clear()
         await ds.db_consumer.stop()
 
@@ -315,7 +323,10 @@ class SessionManager:
         if self._active is None:
             raise NoActiveDeviceError("No active device connection")
         if method == "reboot":
-            await self._active.device.write(b"reboot\n")
+            # Respect the session's line-ending policy instead of hardcoding
+            # \n (a crlf console would treat the bare \n as part of the command).
+            endings = {"none": b"", "lf": b"\n", "crlf": b"\r\n", "cr": b"\r"}
+            await self._active.device.write(b"reboot" + endings[self._active.line_ending])
             return "Reboot command sent"
         elif method in ("dtr", "rts"):
             # Hardware reset via serial control lines

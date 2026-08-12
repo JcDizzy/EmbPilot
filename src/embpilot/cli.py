@@ -341,7 +341,15 @@ def _run_via_socket(args: argparse.Namespace) -> int:
 
         async def _one_shot() -> int:
             client = RpcClient(endpoint)
-            await client.connect()
+            try:
+                await client.connect()
+            except (OSError, ConnectionError) as exc:
+                print(
+                    f"error: cannot reach daemon at {endpoint}: {exc} "
+                    "(start 'embpilot serve' first)",
+                    file=sys.stderr,
+                )
+                return 1
             try:
                 response = await client.call(args.name, arguments)
             finally:
@@ -374,7 +382,15 @@ def _run_via_socket(args: argparse.Namespace) -> int:
 
     async def _batch() -> int:
         client = RpcClient(endpoint)
-        await client.connect()
+        try:
+            await client.connect()
+        except (OSError, ConnectionError) as exc:
+            print(
+                f"error: cannot reach daemon at {endpoint}: {exc} "
+                "(start 'embpilot serve' first)",
+                file=sys.stderr,
+            )
+            return 1
         try:
             async def dispatcher(
                 _manager: object,
