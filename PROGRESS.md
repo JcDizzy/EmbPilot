@@ -1,5 +1,30 @@
 # Progress
 
+## 2026-08-12 — CLI agent-access design (not implemented)
+
+### Done
+- Wrote `docs/specs/2026-08-12-cli-agent-access.md`: a reviewed plan to make the
+  CLI convenient for agents without MCP support (e.g. pi) and for humans.
+  Gap analysis with measured evidence (FIFO keep-alive instability on Windows,
+  no read-only capture, one-shot session loss, historical search bound to the
+  active connection, shell quoting fragility, mixed banner output).
+- Prioritized change list: P0 `batch` (JSONL in/out) + `read_output` tool;
+  P1 `serve` daemon with `--socket` client forwarding; P2 `session_id` search,
+  schema-driven flags, `run`; P3 monitor `--until/--timeout`.
+- Follow-up review (MCP completeness + prompting): RAG engine has no tool-layer
+  exposure (`RagEngine` implemented, zero tools advertise it); only 2 thin
+  prompts; tool descriptions are one-liners; error suggestions are generic.
+  Added section 10: RAG tools (`search_kb`/`list_kb_sources`/`ingest_doc`, P1),
+  5 new prompts (P2), description/suggestion hardening (P2), CLI help (P2),
+  optional `device://session_info` (P3). Explicitly out: resources/subscribe
+  push and dtr/rts reset (kept honestly unadvertised).
+- Explicitly out of scope: cross-process session resurrection, TCP/auth, GUI,
+  changes to the existing exit-code and envelope contracts.
+
+### Current status
+- Design only; no code changes. Rollback point for future implementation: create
+  a commit before starting M1 (P0 batch + read_output).
+
 ## 2026-08-11 — CLI mode
 
 ### Done
