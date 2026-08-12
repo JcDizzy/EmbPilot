@@ -66,8 +66,10 @@ embpilot install --print-config claude   # show the manual snippet, write nothin
 embpilot uninstall --target pi        # remove only what install wrote
 ```
 
-Targets: `claude` (MCP + instructions), `pi` (CLI-only: AGENTS.md + skill
-copied into `~/.pi/agent/skills/`), `agents` (project AGENTS.md).
+Targets: `claude` (MCP + CLAUDE.md), `zcode` (MCP + skill +
+AGENTS.md), `opencode` (MCP + AGENTS.md), `codex` (TOML MCP +
+AGENTS.md, global), `pi` (CLI-only: AGENTS.md + skill copied into
+`~/.pi/agent/skills/`), `agents` (project AGENTS.md).
 `--location local` writes project files, `--location global` writes user-scope
 files; `--check` reports state without writing and exits 0 when everything
 selected is configured.

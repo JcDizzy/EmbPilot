@@ -34,6 +34,20 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- Installer targets expanded to the mainstream harnesses, each with the
+  MCP entry where the harness supports it plus AGENTS.md/CLAUDE.md
+  instructions and the skill where applicable:
+  - zcode (Z.ai): ~/.zcode/cli/config.json `mcp.servers` (global) /
+    ./.agents/mcp.json `mcpServers` (local, the shape ZCode scans) +
+    AGENTS.md + ~/.zcode/skills/ skill copy
+  - opencode: opencode.json `mcp.<name>` wrapper (argv command array +
+    enabled flag) + AGENTS.md; XDG_CONFIG_HOME honored
+  - codex: ~/.codex/config.toml `[mcp_servers.embpilot]` TOML table +
+    AGENTS.md (global only)
+  - claude / pi / agents as before
+- Fixed TOML section boundaries to follow TOML semantics (table = header to
+  the next header) so uninstall removes the whole table, and body lines are
+  indented.
 - `embpilot install` / `embpilot uninstall` (modeled on CodeGraph's
   installer): marker-fenced instructions blocks are upserted into each
   harness's CLAUDE.md / AGENTS.md, listing both the MCP tools and their CLI

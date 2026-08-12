@@ -1,5 +1,26 @@
 # Progress
 
+## 2026-08-12 — installer targets: zcode/opencode/codex added
+
+### Done
+- Researched ZCode (Z.ai) config layout: MCP at ~/.zcode/cli/config.json
+  (mcp.servers) or .agents/mcp.json (mcpServers — same shape as Claude),
+  skills at ~/.zcode/skills/, AGENTS.md supported.
+- New targets: zcode (global mcp.servers + skill + AGENTS.md; local
+  .agents/mcp.json), opencode (opencode.json mcp.<name> wrapper, XDG
+  honored, + AGENTS.md), codex (~/.codex/config.toml [mcp_servers.embpilot]
+  TOML + AGENTS.md, global only). Registry order: claude, zcode, opencode,
+  codex, pi, agents.
+- Shared helpers extracted: install_skill_to/remove_skill_from,
+  upsert/remove_mcp_entry_json, upsert/remove_toml_table,
+  upsert/remove_zcode_mcp (nested mcp.servers shape).
+- Fixed TOML section boundary semantics (table ends at the next header),
+  so uninstall leaves no body residue; body lines indented.
+- Full suite: 129 passed, 1 skipped.
+
+### Current status
+- Installer covers claude/zcode/opencode/codex/pi/agents.
+
 ## 2026-08-12 — installer: embpilot install/uninstall (implemented)
 
 ### Done

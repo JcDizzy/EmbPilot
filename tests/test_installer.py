@@ -204,6 +204,9 @@ def test_agents_target_local_only(project: Path) -> None:
 def test_resolve_target_flag_all_and_unknown(project: Path) -> None:
     assert [t.id for t in resolve_target_flag("all", "local")] == [
         "claude",
+        "zcode",
+        "opencode",
+        "codex",
         "pi",
         "agents",
     ]
@@ -216,4 +219,143 @@ def test_registry_has_expected_targets() -> None:
     assert get_target("claude") is not None
     assert get_target("pi") is not None
     assert get_target("agents") is not None
+    assert get_target("zcode") is not None
+    assert get_target("opencode") is not None
+    assert get_target("codex") is not None
     assert get_target("bogus") is None
+
+
+# ── codex target ─────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def fake_home(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def test_codex_global_install_writes_toml_and_agents(fake_home: Path) -> None:
+    from embpilot.installer.targets import CodexTarget
+
+    CodexTarget().install("global")
+    toml = fake_home / ".codex" / "config.toml"
+    agents = fake_home / ".codex" / "AGENTS.md"
+    assert toml.exists()
+    content = toml.read_text(encoding="utf-8")
+    assert "[mcp_servers.embpilot]" in content
+    assert 'command = "embpilot"' in content
+    assert SECTION_START in agents.read_text(encoding="utf-8")
+
+
+def test_codex_global_install_preserves_sibling_toml(fake_home: Path) -> None:
+    from embpilot.installer.targets import CodexTarget
+
+    toml = fake_home / ".codex" / "config.toml"
+    toml.parent.mkdir(parents=True)
+    toml.write_text(
+        '[mcp_servers.other]\ncommand = "x"\n\n[model]\nname = "gpt"\n',
+        encoding="utf-8",
+    )
+    CodexTarget().install("global")
+    content = toml.read_text(encoding="utf-8")
+    assert "[mcp_servers.other]" in content
+    assert "[mcp_servers.embpilot]" in content
+    assert '[model]' in content
+
+    CodexTarget().uninstall("global")
+    content = toml.read_text(encoding="utf-8")
+    assert "[mcp_servers.embpilot]" not in content
+    assert "[mcp_servers.other]" in content
+
+
+def test_codex_is_global_only() -> None:
+    from embpilot.installer.targets import CodexTarget
+
+    assert CodexTarget().supports_location("global") is True
+    assert CodexTarget().supports_location("local") is False
+
+
+def test_codex_uninstall_leaves_no_body_residue(fake_home: Path) -> None:
+    """Uninstall must remove the whole table, not just the header line."""
+    from embpilot.installer.targets import CodexTarget
+
+    target = CodexTarget()
+    target.install("global")
+    toml = fake_home / ".codex" / "config.toml"
+    assert toml.exists()
+    target.uninstall("global")
+    assert not toml.exists()
+
+
+# ── opencode target ──────────────────────────────────────────────────────────
+
+
+def test_opencode_local_install_uses_mcp_wrapper(project: Path) -> None:
+    from embpilot.installer.targets import OpenCodeTarget
+
+    OpenCodeTarget().install("local")
+    config = json.loads((project / "opencode.json").read_text(encoding="utf-8"))
+    entry = config["mcp"]["embpilot"]
+    assert entry["type"] == "local"
+    assert entry["command"] == ["embpilot", "--data-dir", "./.embpilot-data"]
+    assert entry["enabled"] is True
+    assert SECTION_START in (project / "AGENTS.md").read_text(encoding="utf-8")
+
+    OpenCodeTarget().uninstall("local")
+    assert not (project / "opencode.json").exists()
+
+
+def test_opencode_global_uses_xdg_config(project: Path, monkeypatch) -> None:
+    from embpilot.installer.targets import OpenCodeTarget
+
+    xdg = project / "xdg"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    OpenCodeTarget().install("global")
+    assert (xdg / "opencode" / "opencode.json").exists()
+    assert (xdg / "opencode" / "AGENTS.md").exists()
+
+
+# ── zcode target ─────────────────────────────────────────────────────────────
+
+
+def test_zcode_local_install_writes_agents_mcp_json(project: Path) -> None:
+    from embpilot.installer.targets import ZCodeTarget
+
+    ZCodeTarget().install("local")
+    path = project / ".agents" / "mcp.json"
+    assert path.exists()
+    config = json.loads(path.read_text(encoding="utf-8"))
+    assert config["mcpServers"]["embpilot"]["command"] == "embpilot"
+    assert SECTION_START in (project / "AGENTS.md").read_text(encoding="utf-8")
+
+    ZCodeTarget().uninstall("local")
+    assert not path.exists()
+
+
+def test_zcode_global_install_nested_mcp_and_skill(fake_home: Path) -> None:
+    from embpilot.installer.targets import ZCodeTarget
+
+    ZCodeTarget().install("global")
+    config_path = fake_home / ".zcode" / "cli" / "config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["mcp"]["servers"]["embpilot"]["command"] == "embpilot"
+    skill = fake_home / ".zcode" / "skills" / "embpilot-device-debugging" / "SKILL.md"
+    assert skill.exists()
+    assert SECTION_START in (fake_home / ".zcode" / "AGENTS.md").read_text(encoding="utf-8")
+
+    ZCodeTarget().uninstall("global")
+    assert not config_path.exists()
+    assert not skill.exists()
+
+
+def test_resolve_target_flag_includes_new_targets(project: Path) -> None:
+    assert [t.id for t in resolve_target_flag("all", "local")] == [
+        "claude",
+        "zcode",
+        "opencode",
+        "codex",
+        "pi",
+        "agents",
+    ]
