@@ -98,6 +98,56 @@ def test_help_unknown_tool_exits_2() -> None:
     assert "unknown tool 'bogus_tool'" in completed.stderr
 
 
+def test_schema_flags_reach_the_dispatch_layer(tmp_path: Path) -> None:
+    completed = _run_cli(
+        "tool",
+        "connect_serial",
+        "--port",
+        "COM9",
+        "--baudrate",
+        "9600",
+        "--json-output",
+        data_dir=tmp_path,
+    )
+
+    # COM9 does not exist: the point is the flags parsed and reached dispatch.
+    assert completed.returncode == 1
+    assert '"ok": false' in completed.stdout
+    assert "CONNECTION_FAILED" in completed.stdout
+
+
+def test_schema_flags_reject_bad_enum_values() -> None:
+    completed = _run_cli("tool", "connect_serial", "--port", "COM3", "--parity", "Z")
+
+    assert completed.returncode == 2
+    assert "invalid choice" in completed.stderr
+
+
+def test_run_connects_runs_and_disconnects(tmp_path: Path) -> None:
+    completed = _run_cli(
+        "run",
+        "--connect",
+        '{"port": "COM9"}',
+        "help",
+        "version",
+        data_dir=tmp_path,
+    )
+
+    # connect fails (COM9 missing) but the sequence still executes end-to-end.
+    assert completed.returncode == 1
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    assert len(lines) == 4  # connect + 2 commands + disconnect
+    assert "CONNECTION_FAILED" in lines[0]
+    assert '"ok": true' in lines[-1]  # disconnect succeeded
+
+
+def test_run_rejects_invalid_connect_json() -> None:
+    completed = _run_cli("run", "--connect", "{bad", "help")
+
+    assert completed.returncode == 2
+    assert "invalid JSON for --connect" in completed.stderr
+
+
 def test_one_shot_list_sessions_success(tmp_path: Path) -> None:
     completed = _run_cli("tool", "list_sessions", data_dir=tmp_path)
 

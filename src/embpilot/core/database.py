@@ -227,10 +227,20 @@ class SessionDatabase:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         self._conn: Optional[aiosqlite.Connection] = None
+        self._readonly = False
 
-    async def open(self) -> None:
+    async def open(self, *, readonly: bool = False) -> None:
+        """Open the session database.
+
+        *readonly* opens without schema initialization or WAL/synchronous
+        pragmas, for searching closed sessions without touching their files.
+        """
         self._conn = await aiosqlite.connect(str(self._db_path))
         self._conn.row_factory = aiosqlite.Row
+        self._readonly = readonly
+        if readonly:
+            await self._conn.execute("PRAGMA busy_timeout=5000")
+            return
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.execute("PRAGMA synchronous=NORMAL")
         await self._conn.execute("PRAGMA busy_timeout=5000")
@@ -240,9 +250,9 @@ class SessionDatabase:
 
     async def close(self) -> None:
         if self._conn:
-            # Flush any remaining WAL
-            await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            await self._conn.commit()
+            if not self._readonly:
+                await self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                await self._conn.commit()
             await self._conn.close()
             self._conn = None
             logger.info("Session database closed at %s", self._db_path)

@@ -3,6 +3,17 @@
 ## 0.1.0 (unreleased)
 
 ### Added
+- `search_history_logs` accepts an optional `session_id`; closed sessions are
+  opened read-only and searched without touching the active connection.
+- Schema-driven flags for `embpilot tool` (`--port COM3 --baudrate 9600`);
+  generated from the tool's JSON Schema, kebab-case, enums/types enforced,
+  explicit flags override `--json` keys. Flag dests are prefixed
+  (`schema_`) so `--command` cannot collide with the subcommand dest.
+- `embpilot run --connect '<json>' cmd1 cmd2 ...`: connect, run commands,
+  disconnect as one batch (exit code and envelope contracts identical to
+  batch). `--interface` picks serial/ssh/telnet.
+- SessionDatabase gained `open(readonly=True)` (no schema init, no WAL
+  checkpoint on close) for safe closed-session searches.
 - Prompt catalog expanded from 2 to 7 templates: `connect_and_explore`,
   `capture_boot_log`, `diagnose_connection`, `design_expect`, and
   `session_handoff`; each message carries an actionable tool sequence

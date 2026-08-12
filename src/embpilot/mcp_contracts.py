@@ -126,11 +126,13 @@ def _connection_failure_suggestion(exc: Exception) -> str:
             "Authentication or authorization failed. Check credentials, "
             "key-file permissions, and host-key verification settings."
         )
-    if isinstance(exc, ConnectionRefusedError) or "refused" in text:
+    if isinstance(exc, ConnectionRefusedError) or any(
+        word in text for word in ("refused", "could not open", "cannot open")
+    ):
         return (
-            "Connection refused. Confirm the service is listening on that "
-            "port; for serial, check the port is not occupied by another "
-            "program."
+            "Connection refused or port unavailable. Confirm the service is "
+            "listening on that port; for serial, check the port is not "
+            "occupied by another program and the device is powered on."
         )
     return (
         "Check the device address, credentials, and availability, then retry."
@@ -333,19 +335,27 @@ def build_tool_definitions() -> list[Tool]:
         ),
         _tool(
             "search_history_logs",
-            "Search logs in the active session.",
+            "Search captured device logs by keyword, in the active session or a "
+            "closed historical one.",
             _object_schema(
                 {
                     "keyword": {"type": "string", "minLength": 1},
                     "time_window_seconds": {"type": "integer", "minimum": 1},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                    "session_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Optional: search a closed historical session "
+                        "read-only instead of the active one",
+                    },
                 },
                 required=["keyword"],
             ),
-            when_to_use="Finding when an error or pattern appeared in the current "
-            "session's captured logs.",
-            avoid_when="The session is closed; export_session it and search the "
-            "database locally instead (searching closed sessions is planned).",
+            when_to_use="Finding when an error or pattern appeared in a session's "
+            "captured logs; pass session_id (from list_sessions) to search a "
+            "closed session after disconnection.",
+            avoid_when="The session database file has been deleted; list_sessions "
+            "first to confirm the session still exists.",
         ),
         _tool(
             "list_sessions",

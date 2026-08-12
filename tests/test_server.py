@@ -187,3 +187,46 @@ def test_prompt_texts_contain_actionable_tool_sequences() -> None:
 
     with pytest.raises(ValueError):
         render_prompt("bogus_prompt")
+
+
+@pytest.mark.asyncio
+async def test_search_history_logs_by_session_id_after_disconnect(
+    tmp_path: Path,
+) -> None:
+    """A closed session's logs are searchable without an active connection."""
+    from embpilot.core.database import MainDatabase, SessionDatabase
+    from embpilot.core.engine import LogLine
+    from datetime import datetime, timezone
+
+    device = EchoDevice()
+    config = EmbPilotConfig(data_dir=tmp_path)
+    config.ensure_data_dirs()
+    manager = SessionManager(config, device_factory=lambda _i, _c: device)
+    await manager.start()
+    session_id: str | None = None
+    try:
+        session_id = await manager.connect_device("serial", {"port": "COM3"})
+        # Push some log lines into the session database through the pipeline.
+        ring = manager.active_ring
+        assert ring is not None
+        from embpilot.core.engine import LogProducer
+
+        queue: asyncio.Queue = asyncio.Queue()
+        producer = LogProducer(device.get_reader(), queue, ring, framing_timeout_ms=20)
+        task = asyncio.create_task(producer.run())
+        device.reader.feed_data(b"error: sdio timeout\nboot: ok\n")
+        await asyncio.sleep(0.2)
+        task.cancel()
+        await manager.disconnect_device()
+
+        # No active connection now; searching by session_id must still work.
+        rows = await manager.search_history_logs(keyword="sdio", session_id=session_id)
+        assert len(rows) == 1
+        assert "sdio timeout" in rows[0]["text"]
+
+        with pytest.raises(ValueError):
+            await manager.search_history_logs(
+                keyword="x", session_id="no-such-session"
+            )
+    finally:
+        await manager.shutdown()

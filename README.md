@@ -61,6 +61,22 @@ server API.
 early when `expect_regex` matches or after `duration_ms`, which is how boot
 logs and periodic device output are captured passively.
 
+Tool arguments also accept schema-driven flags instead of inline JSON:
+
+```bash
+embpilot tool connect_serial --port COM3 --baudrate 115200 --line-ending crlf
+embpilot help connect_serial            # schema, examples, guidance for one tool
+```
+
+`run` connects, executes several commands, and disconnects in one call:
+
+```bash
+embpilot run --connect '{"port":"COM3"}' help version uname -a
+```
+
+`search_history_logs` accepts an optional `session_id` so closed sessions can
+be searched after disconnection (`list_sessions` shows the ids).
+
 One-shot tool calls exit `0` on success, `1` on tool failure, and `2` on usage
 or argument errors. Pass `--json-output` to print the structured
 `ok`/`data`/`error` envelope instead of readable text. In the shell, connect

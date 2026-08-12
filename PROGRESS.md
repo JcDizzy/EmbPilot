@@ -1,5 +1,26 @@
 # Progress
 
+## 2026-08-12 — M4: session_id search, schema flags, run (implemented)
+
+### Done
+- `search_history_logs` accepts optional `session_id`: closed sessions open
+  read-only (`SessionDatabase.open(readonly=True)`: no schema init, no WAL
+  checkpoint on close) and search without touching the active connection;
+  unknown id -> INVALID_ARGUMENT, missing file -> NOT_FOUND.
+- Schema-driven flags for `embpilot tool` (`cli_flags.py`): kebab-case
+  flags generated from each tool's JSON Schema; enum/type/boolean handling;
+  explicit flags override `--json`. Fixed an argparse collision where the
+  `--command` flag dest clobbered the subcommand dest (`schema_` prefix).
+- `embpilot run`: connect -> commands -> disconnect as one batch; identical
+  exit-code/envelope contracts; `--interface`, `--timeout-ms`, `--line-ending`.
+- Fixed a bug: flags were attached to the top-level parser instead of the
+  `tool` subparser (`_tool_subparser` helper).
+- Full suite: 102 passed, 1 skipped.
+
+### Current status
+- M1-M4 done. Remaining (optional): M5 monitor `--until/--timeout` and
+  `device://session_info` resource.
+
 ## 2026-08-12 — M3: prompts, guidance, and CLI help (implemented)
 
 ### Done

@@ -345,14 +345,41 @@ class SessionManager:
         keyword: str,
         time_window_seconds: int | None = None,
         limit: int = 50,
+        session_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        if self._active is None:
-            raise NoActiveDeviceError("No active device connection")
-        return await self._active.session_db.search_logs(
-            keyword=keyword,
-            time_window_seconds=time_window_seconds,
-            limit=limit,
-        )
+        """Search logs by keyword.
+
+        Without *session_id* the active session is searched (a connection is
+        required). With *session_id*, the closed historical session is opened
+        read-only and searched without touching the active connection.
+        """
+        if session_id is None:
+            if self._active is None:
+                raise NoActiveDeviceError("No active device connection")
+            return await self._active.session_db.search_logs(
+                keyword=keyword,
+                time_window_seconds=time_window_seconds,
+                limit=limit,
+            )
+
+        sessions = await self._main_db.list_sessions()
+        match = [s for s in sessions if s["session_id"] == session_id]
+        if not match:
+            raise ValueError(f"Session not found: {session_id}")
+        db_path = Path(match[0]["db_path"])
+        if not db_path.exists():
+            raise FileNotFoundError(f"Session db file gone: {db_path}")
+
+        session_db = SessionDatabase(db_path)
+        await session_db.open(readonly=True)
+        try:
+            return await session_db.search_logs(
+                keyword=keyword,
+                time_window_seconds=time_window_seconds,
+                limit=limit,
+            )
+        finally:
+            await session_db.close()
 
     async def delete_session(self, session_id: str) -> None:
         await self._main_db.delete_session(session_id)

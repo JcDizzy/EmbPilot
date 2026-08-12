@@ -21,6 +21,7 @@ import sys
 from collections.abc import Sequence
 
 from embpilot import __version__
+from embpilot.cli_flags import add_schema_flags, collect_flag_arguments
 from embpilot.cli_format import format_result
 from embpilot.cli_shell import run_batch, run_serve, run_shell
 from embpilot.config import EmbPilotConfig
@@ -156,6 +157,39 @@ def build_parser() -> argparse.ArgumentParser:
     )
     help_p.add_argument("name", help="Tool name, e.g. connect_serial")
 
+    run_p = sub.add_parser(
+        "run",
+        help="Connect, run several commands, and disconnect in one invocation",
+    )
+    run_p.add_argument(
+        "--interface",
+        choices=["serial", "ssh", "telnet"],
+        default="serial",
+        help="Connection type (default: serial)",
+    )
+    run_p.add_argument(
+        "--connect",
+        required=True,
+        help="Connection arguments as a JSON object, e.g. '{\"port\": \"COM3\"}'",
+    )
+    run_p.add_argument(
+        "--timeout-ms",
+        type=int,
+        default=5000,
+        help="Default timeout for each command (default: 5000)",
+    )
+    run_p.add_argument(
+        "--line-ending",
+        choices=["session", "none", "lf", "crlf", "cr"],
+        default="session",
+        help="Line ending for each command (default: session)",
+    )
+    run_p.add_argument(
+        "commands",
+        nargs="+",
+        help="Commands to run in order",
+    )
+
     return parser
 
 
@@ -208,7 +242,7 @@ def tool_help_text(name: str) -> str | None:
 def _run_one_shot(args: argparse.Namespace, config: EmbPilotConfig) -> int:
     """Execute one tool call in a fresh process-scoped session manager."""
     try:
-        arguments = json.loads(args.json_args)
+        arguments = collect_flag_arguments(args, args.name, json.loads(args.json_args))
     except json.JSONDecodeError as exc:
         print(f"error: invalid JSON for --json: {exc}", file=sys.stderr)
         return 2
@@ -327,9 +361,74 @@ def _run_via_socket(args: argparse.Namespace) -> int:
     return asyncio.run(_batch())
 
 
+def _run_command_sequence(args: argparse.Namespace, config: EmbPilotConfig) -> int:
+    """Implement ``run``: connect -> commands -> disconnect as one batch."""
+    try:
+        connect_arguments = json.loads(args.connect)
+    except json.JSONDecodeError as exc:
+        print(f"error: invalid JSON for --connect: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(connect_arguments, dict):
+        print("error: --connect must be a JSON object", file=sys.stderr)
+        return 2
+
+    requests: list[dict] = [
+        {"tool": f"connect_{args.interface}", "args": connect_arguments}
+    ]
+    for command in args.commands:
+        requests.append(
+            {
+                "tool": "send_command",
+                "args": {
+                    "command": command,
+                    "timeout_ms": args.timeout_ms,
+                    "line_ending": args.line_ending,
+                },
+            }
+        )
+    requests.append({"tool": "disconnect_device", "args": {}})
+
+    lines = iter(json.dumps(request, ensure_ascii=False) for request in requests)
+
+    async def read_line() -> str:
+        try:
+            return next(lines)
+        except StopIteration:
+            raise EOFError from None
+
+    from embpilot.cli_loop import batch_loop
+    from embpilot.server import SessionManager
+
+    async def _run() -> int:
+        config.ensure_data_dirs()
+        manager = SessionManager(config)
+        await manager.start()
+        try:
+            return await batch_loop(manager, read_line=read_line)
+        finally:
+            await manager.shutdown()
+
+    return asyncio.run(_run())
+
+
+def _tool_subparser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Return the ``tool`` subparser for dynamic schema-flag registration."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            subparser = action.choices.get("tool")
+            if subparser is not None:
+                return subparser
+    raise RuntimeError("tool subparser not found")
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI entry point: server by default, subcommands for tool access."""
     parser = build_parser()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # The tool subcommand gets schema-driven flags; probe the tool name first.
+    probe = parser.parse_known_args(argv)[0]
+    if probe.command == "tool" and probe.name:
+        add_schema_flags(_tool_subparser(parser), probe.name)
     args = parser.parse_args(argv)
     config = EmbPilotConfig.from_args(args)
 
@@ -376,5 +475,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise SystemExit(2)
         print(text, end="")
         return
+
+    if args.command == "run":
+        raise SystemExit(_run_command_sequence(args, config))
 
     parser.error(f"unknown command: {args.command}")
