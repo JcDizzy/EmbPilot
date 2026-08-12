@@ -37,6 +37,7 @@ MCP client rather than opening an interactive terminal.
 tool through a thin CLI that shares the exact same dispatch layer:
 
 ```bash
+embpilot --help                    # server by default; subcommands for tools
 embpilot tools                      # list available tools
 embpilot tool connect_serial --json '{"port":"COM3","baudrate":115200}'
 embpilot tool send_command --json '{"command":"help","line_ending":"crlf"}'
@@ -46,6 +47,30 @@ embpilot batch                      # scripted JSONL mode: one request per stdin
 embpilot serve                      # persistent daemon sharing one session across calls
 embpilot --socket daemon.json tool list_sessions   # talk to a running daemon
 ```
+
+## Agent Harness Installation
+
+Wire EmbPilot into the agents you use — MCP config where the harness supports
+it, plus a marker-fenced instructions block (and the pi skill) where it does
+not. Modeled on CodeGraph's installer; the block lists both the MCP tools and
+their CLI equivalents, so an agent whose MCP server fails to start falls back
+to the CLI automatically:
+
+```bash
+embpilot install                      # auto-detect installed harnesses
+embpilot install --target pi          # pi: AGENTS.md instructions + user skill
+embpilot install --target claude      # Claude Code: .mcp.json + CLAUDE.md
+embpilot install --target agents      # project AGENTS.md (Cursor/Codex/Gemini/...)
+embpilot install --target all --location global --check
+embpilot install --print-config claude   # show the manual snippet, write nothing
+embpilot uninstall --target pi        # remove only what install wrote
+```
+
+Targets: `claude` (MCP + instructions), `pi` (CLI-only: AGENTS.md + skill
+copied into `~/.pi/agent/skills/`), `agents` (project AGENTS.md).
+`--location local` writes project files, `--location global` writes user-scope
+files; `--check` reports state without writing and exits 0 when everything
+selected is configured.
 
 `batch` reads one request object per stdin line
 (`{"tool": "connect_serial", "args": {"port": "COM3"}}`) and prints one

@@ -1,5 +1,32 @@
 # Progress
 
+## 2026-08-12 — installer: embpilot install/uninstall (implemented)
+
+### Done
+- Analyzed CodeGraph's installer architecture from source (cloned to
+  /tmp/codegraph-src): marker-fenced instructions blocks
+  (`<!-- CODEGRAPH_START/END -->`) upserted into CLAUDE.md / AGENTS.md,
+  multi-target registry (detect/install/uninstall/printConfig), conditional
+  wording so global installs don't mislead unindexed projects.
+- `embpilot install` / `embpilot uninstall` with targets:
+  - claude: MCP entry (.mcp.json local / ~/.claude.json global) + CLAUDE.md
+  - pi: AGENTS.md + skill copied to ~/.pi/agent/skills/ (PI_HOME override
+    for tests); pi has no MCP client, so instructions emphasize the CLI
+  - agents: project AGENTS.md (Cursor/Codex/Gemini/opencode), local only
+  Flags: --target auto/all/none/comma, --location global|local, --check
+  (exit 0/1), --print-config <target> (writes nothing). Idempotent upserts,
+  uninstall removes only EmbPilot-owned pieces.
+- Skill template ships in the package (installer/skill_template/SKILL.md,
+  package-data) so pi installs work from a wheel.
+- End-to-end verified: real-machine --check (claude configured via existing
+  .mcp.json), tmp-dir pi global install (AGENTS.md + skill) and uninstall.
+- Full suite: 120 passed, 1 skipped.
+
+### Current status
+- Installer done. Optionally run `embpilot install --target pi --location
+  global` on this machine to wire pi (writes ~/.pi/agent/AGENTS.md + copies
+  the skill).
+
 ## 2026-08-12 — session_info resource + skill sync (implemented)
 
 ### Done

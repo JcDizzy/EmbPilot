@@ -25,10 +25,15 @@ from embpilot.cli_flags import add_schema_flags, collect_flag_arguments
 from embpilot.cli_format import format_result
 from embpilot.cli_shell import run_batch, run_serve, run_shell
 from embpilot.config import EmbPilotConfig
+from embpilot.installer.targets import list_target_ids
 from embpilot.mcp_contracts import build_tool_definitions, dispatch_tool
 from embpilot.mcp_compat import result_structured, tool_input_schema
 
 _JSON_NOTE = "Pass arguments as a JSON object, not as a JSON-encoded string. "
+
+
+def _target_ids() -> str:
+    return ",".join(list_target_ids())
 
 
 def _add_config_args(parser: argparse.ArgumentParser) -> None:
@@ -189,6 +194,33 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         help="Commands to run in order",
     )
+
+    for sub_name, sub_help in (
+        ("install", "Wire EmbPilot into agent harnesses (MCP config + instructions)"),
+        ("uninstall", "Remove EmbPilot wiring from agent harnesses"),
+    ):
+        inst_p = sub.add_parser(sub_name, help=sub_help)
+        inst_p.add_argument(
+            "--target",
+            default="auto",
+            help=f"Targets: auto (detected), all, none, or comma list [{_target_ids()}]",
+        )
+        inst_p.add_argument(
+            "--location",
+            choices=["global", "local"],
+            default="local",
+            help="Scope: project files (local) or user files (global); default: local",
+        )
+        inst_p.add_argument(
+            "--check",
+            action="store_true",
+            help="Report configuration state without writing anything",
+        )
+        inst_p.add_argument(
+            "--print-config",
+            metavar="TARGET",
+            help="Print the manual config snippet for one target without writing",
+        )
 
     return parser
 
@@ -478,5 +510,39 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.command == "run":
         raise SystemExit(_run_command_sequence(args, config))
+
+    if args.command in ("install", "uninstall"):
+        from embpilot.installer.install import (
+            run_check,
+            run_install,
+            run_print_config,
+            run_uninstall,
+        )
+
+        try:
+            if args.print_config:
+                print(run_print_config(args.print_config))
+                return
+            if args.command == "install":
+                if args.check:
+                    lines, code = run_check(
+                        target=args.target, location=args.location
+                    )
+                    print("\n".join(lines))
+                    raise SystemExit(code)
+                print("\n".join(run_install(target=args.target, location=args.location)))
+                return
+            if args.command == "uninstall":
+                if args.check:
+                    lines, code = run_check(
+                        target=args.target, location=args.location
+                    )
+                    print("\n".join(lines))
+                    raise SystemExit(code)
+                print("\n".join(run_uninstall(target=args.target, location=args.location)))
+                return
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            raise SystemExit(2)
 
     parser.error(f"unknown command: {args.command}")

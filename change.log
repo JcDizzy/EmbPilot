@@ -34,6 +34,18 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- `embpilot install` / `embpilot uninstall` (modeled on CodeGraph's
+  installer): marker-fenced instructions blocks are upserted into each
+  harness's CLAUDE.md / AGENTS.md, listing both the MCP tools and their CLI
+  equivalents so agents fall back to the CLI when MCP is unavailable.
+  Targets: `claude` (MCP entry in .mcp.json / ~/.claude.json + CLAUDE.md),
+  `pi` (AGENTS.md + the device-debugging skill copied into
+  ~/.pi/agent/skills/), `agents` (project AGENTS.md). Flags: `--target`
+  auto/all/none/comma list, `--location global|local`, `--check`,
+  `--print-config <target>`. Uninstall removes only what install wrote;
+  sibling MCP servers and unrelated markdown are preserved.
+- The pi device-debugging skill template ships inside the package
+  (`embpilot.installer.skill_template`) for skill installation.
 - `embpilot serve` daemon: one persistent `SessionManager` shared across
   invocations. POSIX listens on a unix socket; Windows falls back to TCP
   loopback on 127.0.0.1 (no named-pipe server API in the standard library).
