@@ -34,6 +34,9 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- `serve --daemon` prints the real interpreter pid from daemon.pid instead
+  of the Popen stub pid (Anaconda venv redirector), so users manage the
+  correct process; regression-tested.
 - Critical Windows fix: `_pid_alive` never uses `os.kill` on Windows
   anymore - CPython implements os.kill with TerminateProcess for every
   signal (sig=0 included), so the old probe actually KILLED the running

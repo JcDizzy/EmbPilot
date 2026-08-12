@@ -583,7 +583,13 @@ def _run_serve_daemon(config: EmbPilotConfig, endpoint: str | None) -> int:
                 info = None
             if info and info.get("endpoint") and _endpoint_reachable(info["endpoint"]):
                 log_file.close()
-                print(f"daemon started (pid {proc.pid})")
+                # proc.pid can be a redirector stub on Anaconda venvs; the
+                # authoritative pid is what the serve process wrote itself.
+                try:
+                    real_pid = int(pid_file.read_text(encoding="utf-8").strip())
+                except (OSError, ValueError):
+                    real_pid = proc.pid
+                print(f"daemon started (pid {real_pid})")
                 print(f"endpoint: {info['endpoint']}")
                 print(f"endpoint file: {endpoint_file}")
                 print(f"log file: {log_path}")

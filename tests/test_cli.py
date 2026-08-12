@@ -445,6 +445,14 @@ def test_serve_daemon_detaches_and_becomes_ready(tmp_path: Path) -> None:
     assert endpoint_file.exists()
     pid = _read_pid(tmp_path / "daemon.pid")
 
+    # The printed pid must be the real interpreter pid from daemon.pid, not
+    # a redirector-stub pid from Popen (regression for Anaconda venvs).
+    import re
+
+    match = re.search(r"daemon started \(pid (\d+)\)", completed.stdout)
+    assert match is not None
+    assert int(match.group(1)) == pid
+
     try:
         # The detached daemon is reachable via --socket.
         call = _run_cli(
