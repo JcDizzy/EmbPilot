@@ -39,6 +39,76 @@ class PromptDevice(EchoDevice):
         self.reader.feed_data(b"login:")
 
 
+class StreamDevice(EchoDevice):
+    """Device that emits boot lines shortly after connecting, on its own."""
+
+    def __init__(self, delay_s: float = 0.05) -> None:
+        super().__init__()
+        self._delay_s = delay_s
+
+    async def connect(self) -> None:
+        self._connected = True
+        loop = asyncio.get_running_loop()
+        loop.call_later(self._delay_s, self._emit_boot_lines)
+
+    def _emit_boot_lines(self) -> None:
+        self.reader.feed_data(b"boot: starting\nboot: ready\n")
+
+
+@pytest.mark.asyncio
+async def test_read_output_observes_device_stream_without_writing(tmp_path: Path) -> None:
+    device = StreamDevice()
+    config = EmbPilotConfig(data_dir=tmp_path, framing_timeout_ms=20)
+    config.ensure_data_dirs()
+    manager = SessionManager(config, device_factory=lambda _interface, _config: device)
+    await manager.start()
+    try:
+        await manager.connect_device("serial", {"port": "COM3"})
+
+        result = await manager.read_output(duration_ms=500, expect_regex="ready")
+
+        assert device.writes == []  # read_output must never write to the device
+        assert result.matched is True
+        assert result.timed_out is False
+        assert "boot: ready" in result.output
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_read_output_times_out_without_expect_match(tmp_path: Path) -> None:
+    device = StreamDevice()
+    config = EmbPilotConfig(data_dir=tmp_path, framing_timeout_ms=20)
+    config.ensure_data_dirs()
+    manager = SessionManager(config, device_factory=lambda _interface, _config: device)
+    await manager.start()
+    try:
+        await manager.connect_device("serial", {"port": "COM3"})
+
+        result = await manager.read_output(duration_ms=300, expect_regex="never-appears")
+
+        assert result.matched is False
+        assert result.timed_out is True
+        assert "boot: starting" in result.output  # collected everything in the window
+        assert "boot: ready" in result.output
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_read_output_requires_active_connection(tmp_path: Path) -> None:
+    config = EmbPilotConfig(data_dir=tmp_path)
+    config.ensure_data_dirs()
+    manager = SessionManager(config, device_factory=lambda _interface, _config: EchoDevice())
+    await manager.start()
+    try:
+        with pytest.raises(Exception) as excinfo:
+            await manager.read_output(duration_ms=100)
+        assert "No active device connection" in str(excinfo.value)
+    finally:
+        await manager.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_session_manager_executes_command_through_transport(tmp_path: Path) -> None:
     device = EchoDevice()

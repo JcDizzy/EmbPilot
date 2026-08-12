@@ -1,49 +1,24 @@
-"""Interactive REPL that reuses the MCP dispatch layer."""
+"""Interactive REPL and scripted batch mode over the MCP dispatch layer."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from collections.abc import Awaitable, Callable
 
-from embpilot.cli_format import format_result
+from embpilot.cli_loop import (
+    batch_loop,
+    dispatch_and_render,
+    known_tool_names,
+    make_line_reader,
+)
 from embpilot.config import EmbPilotConfig
 from embpilot.core.engine import RingBuffer
-from embpilot.mcp_contracts import SessionOperations, build_tool_definitions, dispatch_tool
+from embpilot.mcp_contracts import SessionOperations
 
-_PROMPT = "embpilot> "
 _LOG_PREFIX = "[log] "
 _CMD_PREFIX = "[cmd] "
 _MONITOR_POLL_S = 0.1
-
-
-def _read_piped_line() -> str:
-    """Read one line from a pipe, decoding UTF-8 (with BOM) explicitly.
-
-    PowerShell and other Windows tools often emit a UTF-8 BOM on native
-    stdin; relying on the locale ``input()`` decoder (e.g. GBK) would turn
-    the BOM bytes into garbage characters.
-    """
-    raw = sys.stdin.buffer.readline()
-    if not raw:
-        raise EOFError
-    try:
-        line = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        line = raw.decode(sys.stdin.encoding or "utf-8", errors="replace")
-    return line.rstrip("\r\n")
-
-
-def _default_read_line() -> Callable[[], Awaitable[str]]:
-    """Choose a line reader: interactive console keeps line editing."""
-    if sys.stdin.isatty():
-        return lambda: asyncio.to_thread(input, _PROMPT)
-
-    async def read_piped() -> str:
-        return await asyncio.to_thread(_read_piped_line)
-
-    return read_piped
 
 
 def _prefix_lines(text: str, prefix: str) -> str:
@@ -74,9 +49,9 @@ async def shell_loop(
 ) -> None:
     """Run the REPL against one persistent session manager."""
     if read_line is None:
-        read_line = _default_read_line()
+        read_line = make_line_reader()
 
-    tool_names = {t.name for t in build_tool_definitions()}
+    tool_names = known_tool_names()
     print(
         "EmbPilot shell - tools: "
         + ", ".join(sorted(tool_names))
@@ -147,14 +122,31 @@ async def shell_loop(
                 print("error: arguments must be a JSON object")
                 continue
 
-            result = await dispatch_tool(manager, name, arguments)
-            text = format_result(result, json_output=json_output)
+            text = await dispatch_and_render(
+                manager, name, arguments, json_output=json_output
+            )
             if monitor_task is not None and not monitor_task.done():
                 text = _prefix_lines(text, _CMD_PREFIX)
             print(text)
     finally:
         if monitor_task is not None:
             monitor_task.cancel()
+
+
+async def run_batch(config: EmbPilotConfig, *, fail_fast: bool = False) -> int:
+    """Run a scripted JSONL batch against one persistent SessionManager.
+
+    Returns the process exit code (0 / 1 / 2, see ``batch_loop``).
+    """
+    config.ensure_data_dirs()
+    from embpilot.server import SessionManager
+
+    manager = SessionManager(config)
+    await manager.start()
+    try:
+        return await batch_loop(manager, fail_fast=fail_fast)
+    finally:
+        await manager.shutdown()
 
 
 async def run_shell(config: EmbPilotConfig, *, json_output: bool = False) -> None:

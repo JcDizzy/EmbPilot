@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -260,6 +261,54 @@ class SessionManager:
             session_id=active.session_id,
         )
         return result
+
+    async def read_output(
+        self,
+        duration_ms: int = 1000,
+        expect_regex: Optional[str] = None,
+        max_chars: int = 20_000,
+    ) -> CommandResult:
+        """Observe device output without sending any bytes.
+
+        Collects ring-buffer lines pushed after the call starts, returning
+        early when *expect_regex* matches or when *duration_ms* elapses.
+        """
+        if self._active is None:
+            raise NoActiveDeviceError("No active device connection")
+        if duration_ms < 1:
+            raise ValueError("duration_ms must be at least 1")
+        if max_chars < 1:
+            raise ValueError("max_chars must be at least 1")
+        try:
+            pattern = re.compile(expect_regex) if expect_regex else None
+        except re.error as exc:
+            raise ValueError(f"Invalid expect_regex: {exc}") from exc
+
+        ring = self._active.ring
+        cursor = ring.mark()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + duration_ms / 1000.0
+        matched = False
+        while True:
+            lines = ring.snapshot_since(cursor)
+            if pattern and any(pattern.search(line.text) for line in lines):
+                matched = True
+                break
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(0.01, remaining))
+
+        output = "\n".join(line.formatted() for line in ring.snapshot_since(cursor))
+        truncated = len(output) > max_chars
+        if truncated:
+            output = output[:max_chars]
+        return CommandResult(
+            output=output or "(no output captured)",
+            matched=matched,
+            timed_out=not matched,
+            truncated=truncated,
+        )
 
     async def reset_target(self, method: str = "reboot") -> str:
         """Reset the target device."""

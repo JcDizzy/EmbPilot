@@ -49,6 +49,52 @@ async def test_invalid_json_arguments_return_structured_error() -> None:
     assert "JSON object" in result.structuredContent["error"]["suggestion"]
 
 
+def test_read_output_tool_has_strict_optional_schema() -> None:
+    tools = {tool.name: tool for tool in build_tool_definitions()}
+    schema = tools["read_output"].inputSchema
+
+    assert "required" not in schema  # every argument is optional
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["duration_ms"]["default"] == 1000
+    assert schema["properties"]["expect_regex"]["type"] == "string"
+    assert schema["properties"]["max_chars"]["default"] == 20_000
+    assert schema["examples"] == [{"duration_ms": 1000, "expect_regex": "Login:"}]
+
+
+@pytest.mark.asyncio
+async def test_read_output_dispatch_returns_command_state() -> None:
+    manager = ReadOutputManager()
+
+    result = await dispatch_tool(
+        manager,
+        "read_output",
+        {"duration_ms": 500, "expect_regex": "ready"},
+    )
+
+    assert result.isError is False
+    assert result.structuredContent == {
+        "ok": True,
+        "data": {
+            "output": "boot: ready",
+            "matched": True,
+            "timed_out": False,
+            "truncated": False,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_read_output_without_active_device_is_machine_readable() -> None:
+    result = await dispatch_tool(
+        DisconnectedManager(),
+        "read_output",
+        {"duration_ms": 100},
+    )
+
+    assert result.isError is True
+    assert result.structuredContent["error"]["code"] == "NO_ACTIVE_DEVICE"
+
+
 class RecordingManager:
     def __init__(self) -> None:
         self.connection: tuple[str, dict] | None = None
@@ -56,6 +102,16 @@ class RecordingManager:
     async def connect_device(self, interface: str, config: dict) -> str:
         self.connection = (interface, config)
         return "session-123"
+
+
+class ReadOutputManager(RecordingManager):
+    async def read_output(self, **arguments) -> CommandResult:
+        return CommandResult(
+            output="boot: ready",
+            matched=True,
+            timed_out=False,
+            truncated=False,
+        )
 
 
 @pytest.mark.asyncio
@@ -197,6 +253,9 @@ async def test_existing_session_tools_remain_dispatchable() -> None:
 
 class DisconnectedManager(CommandManager):
     async def send_command(self, **arguments) -> CommandResult:
+        raise NoActiveDeviceError("No active device connection")
+
+    async def read_output(self, **arguments) -> CommandResult:
         raise NoActiveDeviceError("No active device connection")
 
 

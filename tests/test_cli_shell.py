@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from embpilot.cli_loop import batch_loop
 from embpilot.cli_shell import shell_loop
 from embpilot.core.commands import CommandResult
 
@@ -121,6 +122,133 @@ async def test_shell_strips_utf8_bom_from_first_line(capsys) -> None:
     captured = capsys.readouterr().out
     assert "unknown tool" not in captured
     assert "Found 0 session(s)." in captured
+class FailingSendManager(FakeManager):
+    """A fake manager whose send_command always raises."""
+
+    async def send_command(self, **kwargs: object) -> CommandResult:
+        raise RuntimeError("device exploded")
+
+
+async def _run_batch(
+    manager: object,
+    lines: list[str],
+    *,
+    fail_fast: bool = False,
+) -> int:
+    iterator = iter(lines)
+
+    async def read_line() -> str:
+        try:
+            return next(iterator)
+        except StopIteration:
+            raise EOFError from None
+
+    return await batch_loop(manager, read_line=read_line, fail_fast=fail_fast)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_batch_runs_full_sequence_and_returns_zero(capsys) -> None:
+    manager = FakeManager()
+    code = await _run_batch(
+        manager,
+        [
+            '{"tool": "connect_serial", "args": {"port": "COM3"}}',
+            '{"tool": "send_command", "args": {"command": "help"}}',
+            '{"tool": "disconnect_device", "args": {}}',
+        ],
+    )
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert manager.sent == ["help"]
+    assert manager.connected is False  # disconnected at the end
+    lines = [line for line in out.splitlines() if line.strip()]
+    assert len(lines) == 3
+    assert all('"ok": true' in line for line in lines)
+
+
+@pytest.mark.asyncio
+async def test_batch_continues_after_failure_and_returns_1(capsys) -> None:
+    manager = FailingSendManager()
+    code = await _run_batch(
+        manager,
+        [
+            '{"tool": "send_command", "args": {"command": "a"}}',
+            '{"tool": "list_sessions", "args": {}}',
+        ],
+    )
+
+    out = capsys.readouterr().out
+    assert code == 1
+    lines = [line for line in out.splitlines() if line.strip()]
+    assert len(lines) == 2
+    assert '"ok": false' in lines[0]
+    assert 'OPERATION_FAILED' in lines[0]
+    assert '"ok": true' in lines[1]
+
+
+@pytest.mark.asyncio
+async def test_batch_fail_fast_stops_after_first_failure(capsys) -> None:
+    manager = FailingSendManager()
+    code = await _run_batch(
+        manager,
+        [
+            '{"tool": "send_command", "args": {"command": "a"}}',
+            '{"tool": "list_sessions", "args": {}}',
+        ],
+        fail_fast=True,
+    )
+
+    out = capsys.readouterr().out
+    assert code == 1
+    lines = [line for line in out.splitlines() if line.strip()]
+    assert len(lines) == 1
+    assert '"ok": false' in lines[0]
+
+
+@pytest.mark.asyncio
+async def test_batch_invalid_json_returns_2(capsys) -> None:
+    code = await _run_batch(FakeManager(), ['{"tool": "list_sessions"'])
+
+    assert code == 2
+    assert "invalid JSON" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_batch_unknown_tool_returns_2(capsys) -> None:
+    code = await _run_batch(FakeManager(), ['{"tool": "bogus"}'])
+
+    assert code == 2
+    assert "unknown tool 'bogus'" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_batch_non_object_args_returns_2(capsys) -> None:
+    code = await _run_batch(FakeManager(), ['{"tool": "list_sessions", "args": []}'])
+
+    assert code == 2
+    assert "args must be a JSON object" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_batch_ignores_comments_empty_lines_and_exit(capsys) -> None:
+    manager = FakeManager()
+    code = await _run_batch(
+        manager,
+        [
+            "",
+            "# a comment",
+            '{"tool": "list_sessions", "args": {}}',
+            "exit",
+            '{"tool": "list_sessions", "args": {}}',  # must not run
+        ],
+    )
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert len([line for line in out.splitlines() if line.strip()]) == 1
+
+
 @pytest.mark.asyncio
 async def test_monitor_streams_logs_and_prefixes_commands(capsys) -> None:
     from datetime import datetime, timezone

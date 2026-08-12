@@ -22,7 +22,7 @@ from collections.abc import Sequence
 
 from embpilot import __version__
 from embpilot.cli_format import format_result
-from embpilot.cli_shell import run_shell
+from embpilot.cli_shell import run_batch, run_shell
 from embpilot.config import EmbPilotConfig
 from embpilot.mcp_contracts import build_tool_definitions, dispatch_tool
 from embpilot.mcp_compat import result_structured
@@ -121,6 +121,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print structured results as JSON",
     )
 
+    batch_p = sub.add_parser(
+        "batch",
+        help="Run a scripted sequence of tool calls (JSONL in, JSONL out)",
+    )
+    batch_p.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop at the first failing tool call (default: continue)",
+    )
+
     return parser
 
 
@@ -195,5 +205,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         except KeyboardInterrupt:
             print("bye")
         return
+
+    if args.command == "batch":
+        raise SystemExit(asyncio.run(run_batch(config, fail_fast=args.fail_fast)))
 
     parser.error(f"unknown command: {args.command}")

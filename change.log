@@ -3,6 +3,14 @@
 ## 0.1.0 (unreleased)
 
 ### Added
+- `embpilot batch`: scripted JSONL mode (one request object per stdin line,
+  one result envelope per stdout line, no banner). `--fail-fast` stops at the
+  first failing tool call. Exit codes: 0 all ok / 1 tool failure / 2 malformed
+  input or unknown tool.
+- `read_output` tool: observe device output without sending any bytes; returns
+  early when `expect_regex` matches or the `duration_ms` window elapses.
+- Shared line-driven dispatch core (`cli_loop.py`) extracted from the REPL so
+  `shell`, `batch`, and the future `serve` daemon behave identically.
 - CLI mode: `embpilot tools`, `embpilot tool <name> --json '<args>'` (one-shot),
   and `embpilot shell` (interactive REPL). The CLI reuses the MCP dispatch
   layer, so every advertised tool behaves identically outside MCP.

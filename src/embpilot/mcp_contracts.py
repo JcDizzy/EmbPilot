@@ -209,6 +209,34 @@ def build_tool_definitions() -> list[Tool]:
             ),
         ),
         _tool(
+            "read_output",
+            "Read device output without sending any bytes. Use to observe logs "
+            "the device emits on its own (boot messages, periodic status) until "
+            "expect_regex matches or the duration window elapses.",
+            _object_schema(
+                {
+                    "duration_ms": {
+                        **_TIMEOUT_PROPERTY,
+                        "default": 1000,
+                        "description": "Collection window in milliseconds",
+                    },
+                    "expect_regex": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Return early when this pattern appears in device output",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 200_000,
+                        "default": 20_000,
+                        "description": "Maximum output characters",
+                    },
+                },
+                examples=[{"duration_ms": 1000, "expect_regex": "Login:"}],
+            ),
+        ),
+        _tool(
             "search_history_logs",
             "Search logs in the active session.",
             _object_schema(
@@ -247,6 +275,8 @@ class SessionOperations(Protocol):
     async def connect_device(self, interface: str, config: dict[str, Any]) -> str: ...
 
     async def send_command(self, **arguments: Any) -> CommandResult: ...
+
+    async def read_output(self, **arguments: Any) -> CommandResult: ...
 
     async def disconnect_device(self) -> None: ...
 
@@ -317,6 +347,9 @@ async def _dispatch_tool(
         )
     if name == "send_command":
         result = await manager.send_command(**arguments)
+        return _success(result.output, result.as_dict())
+    if name == "read_output":
+        result = await manager.read_output(**arguments)
         return _success(result.output, result.as_dict())
     if name == "disconnect_device":
         await manager.disconnect_device()

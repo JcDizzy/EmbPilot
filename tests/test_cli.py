@@ -9,7 +9,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_cli(*args: str, data_dir: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _run_cli(
+    *args: str,
+    data_dir: Path | None = None,
+    input: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     argv = [sys.executable, "-m", "embpilot"]
     if data_dir is not None:
         argv += ["--data-dir", str(data_dir)]
@@ -20,6 +24,7 @@ def _run_cli(*args: str, data_dir: Path | None = None) -> subprocess.CompletedPr
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
+        input=input,
     )
 
 
@@ -106,6 +111,72 @@ def test_one_shot_schema_violation_exits_2(tmp_path: Path) -> None:
 
     assert completed.returncode == 2
     assert "INVALID_ARGUMENT" in completed.stdout or "invalid" in completed.stdout.lower()
+def test_batch_runs_jsonl_requests_and_prints_one_envelope_per_line(
+    tmp_path: Path,
+) -> None:
+    completed = _run_cli(
+        "batch",
+        input='{"tool": "list_sessions", "args": {}}\n'
+        '{"tool": "list_sessions", "args": {}}\n',
+        data_dir=tmp_path,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    assert len(lines) == 2
+    assert all('"ok": true' in line for line in lines)
+
+
+def test_batch_invalid_json_exits_2(tmp_path: Path) -> None:
+    completed = _run_cli(
+        "batch",
+        input='{"tool": "list_sessions"\n',
+        data_dir=tmp_path,
+    )
+
+    assert completed.returncode == 2
+    assert "invalid JSON" in completed.stderr
+
+
+def test_batch_unknown_tool_exits_2(tmp_path: Path) -> None:
+    completed = _run_cli(
+        "batch",
+        input='{"tool": "bogus"}\n',
+        data_dir=tmp_path,
+    )
+
+    assert completed.returncode == 2
+    assert "unknown tool 'bogus'" in completed.stderr
+
+
+def test_batch_connect_failure_sets_exit_code_1(tmp_path: Path) -> None:
+    completed = _run_cli(
+        "batch",
+        input='{"tool": "connect_serial", "args": {"port": "COM9"}}\n',
+        data_dir=tmp_path,
+    )
+
+    assert completed.returncode == 1
+    assert '"ok": false' in completed.stdout
+    assert "CONNECTION_FAILED" in completed.stdout
+
+
+def test_batch_fail_fast_stops_at_first_failure(tmp_path: Path) -> None:
+    completed = _run_cli(
+        "batch",
+        "--fail-fast",
+        input='{"tool": "send_command", "args": {"command": "x"}}\n'
+        '{"tool": "list_sessions", "args": {}}\n',
+        data_dir=tmp_path,
+    )
+
+    assert completed.returncode == 1
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    assert len(lines) == 1
+    assert '"ok": false' in lines[0]
+    assert "NO_ACTIVE_DEVICE" in lines[0]
+
+
 def test_shell_accepts_utf8_bom_piped_stdin(tmp_path: Path) -> None:
     """PowerShell pipes native stdin with a UTF-8 BOM; the shell must cope."""
     completed = subprocess.run(

@@ -1,5 +1,23 @@
 # Progress
 
+## 2026-08-12 — M1: batch mode + read_output tool (implemented)
+
+### Done
+- Extracted the line-driven dispatch core into `cli_loop.py` (A1): shell,
+  batch, and the future serve share read/parse/dispatch/render machinery.
+- `embpilot batch`: JSONL in / JSONL out, one envelope per line, no banner,
+  `--fail-fast`, exit codes 0/1/2, comments/blank lines/`exit` handled.
+- `read_output` tool: passive observation without writing to the device;
+  `expect_regex` early return, `duration_ms` window, `max_chars` truncation;
+  registered in the shared contract layer (MCP + CLI identical).
+- Fixed a batch args falsy-value bug (`[] or {}` silently swallowed non-object
+  args).
+- Full suite green (70 tests, incl. 10 new batch/read_output cases).
+
+### Current status
+- M1 done. Next: M2 (`serve` daemon + `--socket` forwarding; start with the
+  Windows named-pipe feasibility check).
+
 ## 2026-08-12 — CLI agent-access design (not implemented)
 
 ### Done
