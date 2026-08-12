@@ -81,12 +81,16 @@ async def batch_loop(
     *,
     read_line: Callable[[], Awaitable[str]] | None = None,
     fail_fast: bool = False,
+    dispatcher: Callable[[SessionOperations, str, dict], Awaitable[dict]] | None = None,
 ) -> int:
     """Run scripted JSONL requests, printing one result envelope per line.
 
     Each stdin line is a request object: ``{"tool": "<name>", "args": {...}}``.
     Empty lines and ``#`` comments are ignored; ``exit``/``quit`` stop early.
     No banner or prompt is printed, so the stdout is pure JSONL.
+
+    *dispatcher* replaces the default local ``dispatch_tool`` path, e.g. to
+    forward requests to a daemon; it must return an ``ok/data/error`` dict.
 
     Returns the process exit code: 0 when every request succeeded, 1 when at
     least one tool call failed (or ``--fail-fast`` stopped early), and 2 on
@@ -95,6 +99,7 @@ async def batch_loop(
     if read_line is None:
         read_line = make_line_reader()
     tool_names = known_tool_names()
+    dispatch = dispatcher or dispatch_payload
     exit_code = 0
 
     while True:
@@ -130,7 +135,7 @@ async def batch_loop(
             print(f"error: unknown tool '{name}'", file=sys.stderr)
             return 2
 
-        payload = await dispatch_payload(manager, name, arguments)
+        payload = await dispatch(manager, name, arguments)
         print(json.dumps(payload, ensure_ascii=False))
         if payload.get("ok") is not True:
             exit_code = 1

@@ -22,7 +22,7 @@ from collections.abc import Sequence
 
 from embpilot import __version__
 from embpilot.cli_format import format_result
-from embpilot.cli_shell import run_batch, run_shell
+from embpilot.cli_shell import run_batch, run_serve, run_shell
 from embpilot.config import EmbPilotConfig
 from embpilot.mcp_contracts import build_tool_definitions, dispatch_tool
 from embpilot.mcp_compat import result_structured
@@ -91,6 +91,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    parser.add_argument(
+        "--socket",
+        default=None,
+        metavar="ENDPOINT",
+        help="Talk to a running 'embpilot serve' daemon instead of a local "
+        "session. Accepts unix:PATH, tcp:HOST:PORT, or the path of the "
+        "daemon.json endpoint file the daemon wrote.",
+    )
     _add_config_args(parser)
 
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -129,6 +137,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--fail-fast",
         action="store_true",
         help="Stop at the first failing tool call (default: continue)",
+    )
+
+    serve_p = sub.add_parser(
+        "serve",
+        help="Run a persistent daemon sharing one session manager",
+    )
+    serve_p.add_argument(
+        "--socket",
+        default=None,
+        help="Listen endpoint: unix:PATH (POSIX) or tcp:HOST:PORT (Windows); "
+        "defaults to a platform-appropriate loopback endpoint",
     )
 
     return parser
@@ -180,6 +199,91 @@ def _run_one_shot(args: argparse.Namespace, config: EmbPilotConfig) -> int:
     return asyncio.run(_run())
 
 
+def _run_via_socket(args: argparse.Namespace) -> int:
+    """Forward tool/tools/batch calls to a running daemon."""
+    from embpilot.rpc import RpcClient, resolve_endpoint
+
+    try:
+        endpoint = resolve_endpoint(args.socket)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.command == "tools":
+        # The catalog is a static contract; render it locally.
+        print(tools_text(), end="")
+        return 0
+
+    if args.command == "tool":
+        try:
+            arguments = json.loads(args.json_args)
+        except json.JSONDecodeError as exc:
+            print(f"error: invalid JSON for --json: {exc}", file=sys.stderr)
+            return 2
+        if not isinstance(arguments, dict):
+            print("error: --json must be a JSON object", file=sys.stderr)
+            return 2
+
+        async def _one_shot() -> int:
+            client = RpcClient(endpoint)
+            await client.connect()
+            try:
+                response = await client.call(args.name, arguments)
+            finally:
+                await client.close()
+
+            if args.json_output:
+                payload = {
+                    key: response[key]
+                    for key in ("ok", "data", "error")
+                    if key in response
+                }
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                if response.get("text"):
+                    print(response["text"])
+                if response.get("ok") is not True and response.get("error"):
+                    error = response["error"]
+                    print(f"error ({error.get('code')}): {error.get('message')}")
+                    if error.get("suggestion"):
+                        print(f"suggestion: {error['suggestion']}")
+            if response.get("ok") is True:
+                return 0
+            code = (response.get("error") or {}).get("code", "OPERATION_FAILED")
+            return 2 if code in ("UNKNOWN_TOOL", "INVALID_ARGUMENT") else 1
+
+        return asyncio.run(_one_shot())
+
+    # batch: forward each request over the daemon connection.
+    from embpilot.cli_loop import batch_loop
+
+    async def _batch() -> int:
+        client = RpcClient(endpoint)
+        await client.connect()
+        try:
+            async def dispatcher(
+                _manager: object,
+                name: str,
+                arguments: dict,
+            ) -> dict:
+                response = await client.call(name, arguments)
+                return {
+                    key: response[key]
+                    for key in ("ok", "data", "error")
+                    if key in response
+                }
+
+            return await batch_loop(
+                client,  # type: ignore[arg-type]
+                fail_fast=args.fail_fast,
+                dispatcher=dispatcher,
+            )
+        finally:
+            await client.close()
+
+    return asyncio.run(_batch())
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI entry point: server by default, subcommands for tool access."""
     parser = build_parser()
@@ -191,6 +295,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         serve(config)
         return
+
+    if args.command in ("tools", "tool", "batch") and args.socket:
+        raise SystemExit(_run_via_socket(args))
 
     if args.command == "tools":
         print(tools_text(), end="")
@@ -208,5 +315,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.command == "batch":
         raise SystemExit(asyncio.run(run_batch(config, fail_fast=args.fail_fast)))
+
+    if args.command == "serve":
+        try:
+            asyncio.run(run_serve(config, endpoint=args.socket))
+        except KeyboardInterrupt:
+            print("bye")
+        return
 
     parser.error(f"unknown command: {args.command}")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -175,6 +176,106 @@ def test_batch_fail_fast_stops_at_first_failure(tmp_path: Path) -> None:
     assert len(lines) == 1
     assert '"ok": false' in lines[0]
     assert "NO_ACTIVE_DEVICE" in lines[0]
+
+
+def _start_serve(data_dir: Path) -> subprocess.Popen:
+    argv = [sys.executable, "-m", "embpilot", "--data-dir", str(data_dir), "serve"]
+    return subprocess.Popen(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+
+
+def _wait_for_endpoint_file(data_dir: Path, timeout_s: float = 15.0) -> Path:
+    path = data_dir / "daemon.json"
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if path.exists():
+            return path
+        time.sleep(0.2)
+    raise TimeoutError(f"daemon endpoint file never appeared: {path}")
+
+
+def _stop_serve(process: subprocess.Popen) -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+
+
+def test_socket_client_round_trip_with_daemon(tmp_path: Path) -> None:
+    process = _start_serve(tmp_path)
+    try:
+        endpoint_file = _wait_for_endpoint_file(tmp_path)
+        completed = _run_cli(
+            "--socket",
+            str(endpoint_file),
+            "tool",
+            "list_sessions",
+            "--json-output",
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert '"ok": true' in completed.stdout
+        assert '"sessions"' in completed.stdout
+    finally:
+        _stop_serve(process)
+
+
+def test_socket_one_shot_human_readable_and_error_exit(tmp_path: Path) -> None:
+    process = _start_serve(tmp_path)
+    try:
+        endpoint_file = _wait_for_endpoint_file(tmp_path)
+        failed = _run_cli(
+            "--socket",
+            str(endpoint_file),
+            "tool",
+            "send_command",
+            "--json",
+            '{"command": "x"}',
+        )
+        assert failed.returncode == 1
+        assert "NO_ACTIVE_DEVICE" in failed.stdout
+        assert "suggestion" in failed.stdout
+    finally:
+        _stop_serve(process)
+
+
+def test_socket_batch_forwards_requests_to_daemon(tmp_path: Path) -> None:
+    process = _start_serve(tmp_path)
+    try:
+        endpoint_file = _wait_for_endpoint_file(tmp_path)
+        completed = _run_cli(
+            "--socket",
+            str(endpoint_file),
+            "batch",
+            input='{"tool": "list_sessions", "args": {}}\n'
+            '{"tool": "send_command", "args": {"command": "x"}}\n',
+        )
+        assert completed.returncode == 1  # send_command fails without a connection
+        lines = [line for line in completed.stdout.splitlines() if line.strip()]
+        assert len(lines) == 2
+        assert '"ok": true' in lines[0]
+        assert '"ok": false' in lines[1]
+        assert "NO_ACTIVE_DEVICE" in lines[1]
+    finally:
+        _stop_serve(process)
+
+
+def test_socket_unknown_endpoint_file_exits_2(tmp_path: Path) -> None:
+    completed = _run_cli(
+        "--socket",
+        str(tmp_path / "missing.json"),
+        "tool",
+        "list_sessions",
+    )
+
+    assert completed.returncode == 2
+    assert "cannot read daemon endpoint file" in completed.stderr
 
 
 def test_shell_accepts_utf8_bom_piped_stdin(tmp_path: Path) -> None:

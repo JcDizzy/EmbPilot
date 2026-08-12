@@ -149,6 +149,37 @@ async def run_batch(config: EmbPilotConfig, *, fail_fast: bool = False) -> int:
         await manager.shutdown()
 
 
+async def run_serve(config: EmbPilotConfig, *, endpoint: str | None = None) -> None:
+    """Run a persistent daemon sharing one SessionManager across clients.
+
+    The daemon writes its real endpoint to ``<data-dir>/daemon.json`` so
+    clients can discover it with ``--socket <that-file>``.
+    """
+    config.ensure_data_dirs()
+    from embpilot.rpc import (
+        RpcServer,
+        default_endpoint,
+        write_endpoint_file,
+    )
+    from embpilot.server import SessionManager
+
+    manager = SessionManager(config)
+    server = RpcServer(
+        manager,
+        endpoint=endpoint or default_endpoint(config.data_dir),
+    )
+    await manager.start()
+    await server.start()
+    endpoint_file = write_endpoint_file(config.data_dir, server.listening_endpoint)
+    print(f"embpilot serve listening on {server.listening_endpoint}")
+    print(f"endpoint file: {endpoint_file}")
+    try:
+        await server.serve_forever()
+    finally:
+        await server.close()
+        await manager.shutdown()
+
+
 async def run_shell(config: EmbPilotConfig, *, json_output: bool = False) -> None:
     """Start a persistent SessionManager and run the REPL."""
     config.ensure_data_dirs()

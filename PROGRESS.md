@@ -1,5 +1,29 @@
 # Progress
 
+## 2026-08-12 — M2: serve daemon + --socket forwarding (implemented)
+
+### Done
+- Windows feasibility check: `asyncio.start_unix_server` is unavailable on
+  win32 (AttributeError) and the stdlib has no named-pipe server API; TCP
+  loopback works. Decision: unix socket on POSIX, TCP 127.0.0.1 fallback on
+  Windows, unified `unix:` / `tcp:` endpoint syntax.
+- `rpc.py`: JSONL wire protocol (request `{id, tool, args}`; response
+  `{id, ok, data|error, text}`), `RpcServer` with per-connection id spaces
+  and an asyncio lock serializing dispatch across clients, `RpcClient` with
+  id-correlated responses, `resolve_endpoint` accepting daemon.json paths.
+- `embpilot serve`: daemon writes its real endpoint to
+  `<data-dir>/daemon.json` (resolves port 0); `--socket` on
+  `tool`/`tools`/`batch` forwards requests (same exit-code/output contracts).
+- `batch_loop` gained a pluggable `dispatcher` so batch forwarding reuses the
+  same parsing/exit-code machinery.
+- End-to-end verified on Windows: daemon up, daemon.json discovery, tool
+  call, batch forwarding with a failing line (exit 1, structured error).
+- Full suite: 83 passed, 1 skipped (unix-socket test, POSIX only).
+
+### Current status
+- M1 + M2 done. Next: M3 (prompts expansion, description/suggestion
+  hardening, CLI help), then M4 (session_id search, schema-driven flags, run).
+
 ## 2026-08-12 — M1: batch mode + read_output tool (implemented)
 
 ### Done

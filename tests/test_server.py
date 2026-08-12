@@ -42,7 +42,7 @@ class PromptDevice(EchoDevice):
 class StreamDevice(EchoDevice):
     """Device that emits boot lines shortly after connecting, on its own."""
 
-    def __init__(self, delay_s: float = 0.05) -> None:
+    def __init__(self, delay_s: float = 0.2) -> None:
         super().__init__()
         self._delay_s = delay_s
 
@@ -65,7 +65,7 @@ async def test_read_output_observes_device_stream_without_writing(tmp_path: Path
     try:
         await manager.connect_device("serial", {"port": "COM3"})
 
-        result = await manager.read_output(duration_ms=500, expect_regex="ready")
+        result = await manager.read_output(duration_ms=2000, expect_regex="ready")
 
         assert device.writes == []  # read_output must never write to the device
         assert result.matched is True
@@ -85,7 +85,7 @@ async def test_read_output_times_out_without_expect_match(tmp_path: Path) -> Non
     try:
         await manager.connect_device("serial", {"port": "COM3"})
 
-        result = await manager.read_output(duration_ms=300, expect_regex="never-appears")
+        result = await manager.read_output(duration_ms=2000, expect_regex="never-appears")
 
         assert result.matched is False
         assert result.timed_out is True

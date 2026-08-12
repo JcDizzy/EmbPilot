@@ -3,6 +3,16 @@
 ## 0.1.0 (unreleased)
 
 ### Added
+- `embpilot serve` daemon: one persistent `SessionManager` shared across
+  invocations. POSIX listens on a unix socket; Windows falls back to TCP
+  loopback on 127.0.0.1 (no named-pipe server API in the standard library).
+  The real endpoint is written to `<data-dir>/daemon.json` for discovery.
+- `--socket` client forwarding: `tool` / `tools` / `batch` can talk to a
+  running daemon (`unix:PATH`, `tcp:HOST:PORT`, or the daemon.json file path)
+  with the same exit-code and output contracts as local execution.
+- RPC layer (`rpc.py`): JSONL wire protocol with per-connection `id`
+  correlation, serialized dispatch across concurrent clients, and `text`
+  payloads for terminal rendering.
 - `embpilot batch`: scripted JSONL mode (one request object per stdin line,
   one result envelope per stdout line, no banner). `--fail-fast` stops at the
   first failing tool call. Exit codes: 0 all ok / 1 tool failure / 2 malformed

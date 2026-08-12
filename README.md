@@ -42,7 +42,24 @@ embpilot tool connect_serial --json '{"port":"COM3","baudrate":115200}'
 embpilot tool send_command --json '{"command":"help","line_ending":"crlf"}'
 embpilot tool list_sessions
 embpilot shell                      # interactive REPL with a persistent session
+embpilot batch                      # scripted JSONL mode: one request per stdin line
+embpilot serve                      # persistent daemon sharing one session across calls
+embpilot --socket daemon.json tool list_sessions   # talk to a running daemon
 ```
+
+`batch` reads one request object per stdin line
+(`{"tool": "connect_serial", "args": {"port": "COM3"}}`) and prints one
+result envelope per stdout line, without any banner; add `--fail-fast` to stop
+at the first failing call. `serve` keeps a single session manager alive so
+`connect` survives across separate invocations: start it once, then pass
+`--socket <daemon.json>` (or a `unix:PATH` / `tcp:HOST:PORT` endpoint) to
+`tool` / `tools` / `batch`. POSIX uses a unix socket; Windows falls back to a
+TCP loopback bound to 127.0.0.1 because the standard library has no named-pipe
+server API.
+
+`read_output` observes device output without sending any bytes; it returns
+early when `expect_regex` matches or after `duration_ms`, which is how boot
+logs and periodic device output are captured passively.
 
 One-shot tool calls exit `0` on success, `1` on tool failure, and `2` on usage
 or argument errors. Pass `--json-output` to print the structured
