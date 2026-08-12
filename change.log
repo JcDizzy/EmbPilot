@@ -34,9 +34,33 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- Codex review round fixes:
+  - `--socket` tool calls now merge schema flags exactly like local ones
+    (flags were silently dropped over the socket, violating equivalence).
+  - `search_history_logs` / `export_session` report NOT_FOUND for unknown
+    session ids (were INVALID_ARGUMENT).
+  - `batch --json-output` accepted (batch always prints JSONL) so the spec
+    example runs unchanged.
+  - CLI emits UTF-8 on Windows (reconfigured stdout/stderr): non-ASCII
+    system messages (Chinese serial errors) no longer garble under agents.
+  - `serve` refuses non-loopback TCP endpoints; README documents the
+    local-only trust model.
+  - `embpilot shell` accepts `help <tool>`; `embpilot tool <name> --help`
+    shows the full tool help instead of argparse usage.
+  - `run --connect` is optional (spec: omitted = no connection); run is
+    fail-fast so a failed connect does not cascade NO_ACTIVE_DEVICE noise.
+  - All 11 tool descriptions now carry Pitfalls; `device://session_info`
+    includes interface, device, start time, status, and recent error
+    patterns.
+  - `run_uninstall` skips unsupported locations like `run_install` does.
+  - Deduplicated: interactive install/uninstall share one flow; local and
+    socket one-shot share argument parsing/exit-code mapping; batch and the
+    daemon share the JSONL request parser; targets share instructions
+    upsert/remove helpers.
+  - Fixed trailing whitespace in change.log.
 - Review round fixes: `--socket` calls against a dead daemon now report
   "cannot reach daemon" (exit 1) instead of a traceback; `reset_target`
-  respects the session line ending (crlf consoles no longer get a bare 
+  respects the session line ending (crlf consoles no longer get a bare
 );
   `DbConsumer` keeps a strong reference to its flush tasks (asyncio GC
   pitfall); `disconnect_device` bounds the background-task wait to 2s and

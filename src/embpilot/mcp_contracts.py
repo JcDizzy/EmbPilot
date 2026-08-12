@@ -247,6 +247,8 @@ def build_tool_definitions() -> list[Tool]:
             _object_schema({}),
             when_to_use="Always at the end of a debugging task, before abandoning a "
             "session, or before connecting to a different device.",
+            pitfalls="Idempotent: disconnecting with no active session is a no-op "
+            "success, so it is safe to call defensively.",
         ),
         _tool(
             "send_command",
@@ -356,6 +358,8 @@ def build_tool_definitions() -> list[Tool]:
             "closed session after disconnection.",
             avoid_when="The session database file has been deleted; list_sessions "
             "first to confirm the session still exists.",
+            pitfalls="Search is a LIKE query, not regex or full-text: '%' and '_' "
+            "in the keyword act as wildcards.",
         ),
         _tool(
             "list_sessions",
@@ -363,6 +367,8 @@ def build_tool_definitions() -> list[Tool]:
             _object_schema({}),
             when_to_use="Before exporting or reviewing past work; sessions are "
             "persisted in SQLite after disconnects.",
+            pitfalls="Closed sessions are listed until deleted or expired by the "
+            "retention policy; file_size may be 0 for very short sessions.",
         ),
         _tool(
             "delete_session",
@@ -373,6 +379,8 @@ def build_tool_definitions() -> list[Tool]:
             ),
             when_to_use="Cleaning up sessions that are no longer needed; this cannot "
             "be undone.",
+            pitfalls="Deletes the session database file and its index entry "
+            "permanently; export first if the logs may be needed later.",
         ),
         _tool(
             "export_session",
@@ -386,6 +394,9 @@ def build_tool_definitions() -> list[Tool]:
             ),
             when_to_use="Handing a session over to external tooling (SQLite queries, "
             "backup, or sharing).",
+            pitfalls="target_path may be a directory (the session db is copied into "
+            "it) or a .db file path; a running session must be disconnected "
+            "before its data is fully checkpointed.",
         ),
     ]
 

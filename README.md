@@ -88,7 +88,9 @@ at the first failing call. `serve` keeps a single session manager alive so
 `--socket <daemon.json>` (or a `unix:PATH` / `tcp:HOST:PORT` endpoint) to
 `tool` / `tools` / `batch`. POSIX uses a unix socket; Windows falls back to a
 TCP loopback bound to 127.0.0.1 because the standard library has no named-pipe
-server API.
+server API. The daemon refuses to bind any non-loopback TCP address: it is a
+local-only, unauthenticated service — anything that can reach the socket can
+send commands to the attached device.
 
 `read_output` observes device output without sending any bytes; it returns
 early when `expect_regex` matches or after `duration_ms`, which is how boot

@@ -224,7 +224,7 @@ async def test_search_history_logs_by_session_id_after_disconnect(
         assert len(rows) == 1
         assert "sdio timeout" in rows[0]["text"]
 
-        with pytest.raises(ValueError):
+        with pytest.raises(FileNotFoundError):
             await manager.search_history_logs(
                 keyword="x", session_id="no-such-session"
             )

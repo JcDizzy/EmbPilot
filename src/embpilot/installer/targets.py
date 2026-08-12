@@ -148,17 +148,7 @@ class ClaudeCodeTarget(AgentTarget):
         changes.append(
             upsert_mcp_entry_json(_claude_mcp_json(loc), "mcpServers", MCP_SERVER_ENTRY)
         )
-        changes.append(
-            FileChange(
-                _claude_instructions(loc),
-                replace_or_append_marked_section(
-                    _claude_instructions(loc),
-                    INSTRUCTIONS_BLOCK,
-                    SECTION_START,
-                    SECTION_END,
-                ),
-            )
-        )
+        changes.append(upsert_instructions(_claude_instructions(loc)))
         return changes
 
     def uninstall(self, loc: Location) -> list[FileChange]:
@@ -166,14 +156,7 @@ class ClaudeCodeTarget(AgentTarget):
         changes.append(
             remove_mcp_entry_json(_claude_mcp_json(loc), "mcpServers")
         )
-        changes.append(
-            FileChange(
-                _claude_instructions(loc),
-                remove_marked_section(
-                    _claude_instructions(loc), SECTION_START, SECTION_END
-                ),
-            )
-        )
+        changes.append(remove_instructions(_claude_instructions(loc)))
         return changes
 
     def print_config(self) -> str:
@@ -196,6 +179,24 @@ def _mcp_json_snippet() -> str:
         {"mcpServers": {MCP_SERVER_NAME: MCP_SERVER_ENTRY}},
         ensure_ascii=False,
         indent=2,
+    )
+
+
+def upsert_instructions(path: Path) -> FileChange:
+    """Upsert the marker-fenced EmbPilot instructions block into *path*."""
+    return FileChange(
+        path,
+        replace_or_append_marked_section(
+            path, INSTRUCTIONS_BLOCK, SECTION_START, SECTION_END
+        ),
+    )
+
+
+def remove_instructions(path: Path) -> FileChange:
+    """Remove the marker-fenced EmbPilot instructions block from *path*."""
+    return FileChange(
+        path,
+        remove_marked_section(path, SECTION_START, SECTION_END),
     )
 
 
@@ -405,30 +406,13 @@ class PiTarget(AgentTarget):
         return DetectionResult(installed, already, str(instructions))
 
     def install(self, loc: Location) -> list[FileChange]:
-        changes = [
-            FileChange(
-                _pi_instructions(loc),
-                replace_or_append_marked_section(
-                    _pi_instructions(loc),
-                    INSTRUCTIONS_BLOCK,
-                    SECTION_START,
-                    SECTION_END,
-                ),
-            )
-        ]
+        changes = [upsert_instructions(_pi_instructions(loc))]
         if loc == "global":
             changes.append(install_skill_to(_pi_skill_dest()))
         return changes
 
     def uninstall(self, loc: Location) -> list[FileChange]:
-        changes = [
-            FileChange(
-                _pi_instructions(loc),
-                remove_marked_section(
-                    _pi_instructions(loc), SECTION_START, SECTION_END
-                ),
-            )
-        ]
+        changes = [remove_instructions(_pi_instructions(loc))]
         if loc == "global":
             changes.append(remove_skill_from(_pi_skill_dest()))
         return changes
@@ -471,23 +455,11 @@ class AgentsTarget(AgentTarget):
 
     def install(self, loc: Location) -> list[FileChange]:
         path = project_dir() / "AGENTS.md"
-        return [
-            FileChange(
-                path,
-                replace_or_append_marked_section(
-                    path, INSTRUCTIONS_BLOCK, SECTION_START, SECTION_END
-                ),
-            )
-        ]
+        return [upsert_instructions(path)]
 
     def uninstall(self, loc: Location) -> list[FileChange]:
         path = project_dir() / "AGENTS.md"
-        return [
-            FileChange(
-                path,
-                remove_marked_section(path, SECTION_START, SECTION_END),
-            )
-        ]
+        return [remove_instructions(path)]
 
     def print_config(self) -> str:
         return "Append the block below to the project AGENTS.md:\n\n" + INSTRUCTIONS_BLOCK
@@ -536,26 +508,13 @@ class CodexTarget(AgentTarget):
     def install(self, loc: Location) -> list[FileChange]:
         return [
             upsert_toml_table(self._toml_path(), "mcp_servers.embpilot", MCP_SERVER_ENTRY),
-            FileChange(
-                self._instructions_path(),
-                replace_or_append_marked_section(
-                    self._instructions_path(),
-                    INSTRUCTIONS_BLOCK,
-                    SECTION_START,
-                    SECTION_END,
-                ),
-            ),
+            upsert_instructions(self._instructions_path()),
         ]
 
     def uninstall(self, loc: Location) -> list[FileChange]:
         return [
             remove_toml_table(self._toml_path(), "mcp_servers.embpilot"),
-            FileChange(
-                self._instructions_path(),
-                remove_marked_section(
-                    self._instructions_path(), SECTION_START, SECTION_END
-                ),
-            ),
+            remove_instructions(self._instructions_path()),
         ]
 
     def print_config(self) -> str:
@@ -614,29 +573,12 @@ class OpenCodeTarget(AgentTarget):
                 _opencode_config_path(loc), "mcp", OPENCODE_MCP_ENTRY
             )
         ]
-        changes.append(
-            FileChange(
-                _opencode_instructions(loc),
-                replace_or_append_marked_section(
-                    _opencode_instructions(loc),
-                    INSTRUCTIONS_BLOCK,
-                    SECTION_START,
-                    SECTION_END,
-                ),
-            )
-        )
+        changes.append(upsert_instructions(_opencode_instructions(loc)))
         return changes
 
     def uninstall(self, loc: Location) -> list[FileChange]:
         changes = [remove_mcp_entry_json(_opencode_config_path(loc), "mcp")]
-        changes.append(
-            FileChange(
-                _opencode_instructions(loc),
-                remove_marked_section(
-                    _opencode_instructions(loc), SECTION_START, SECTION_END
-                ),
-            )
-        )
+        changes.append(remove_instructions(_opencode_instructions(loc)))
         return changes
 
     def print_config(self) -> str:
@@ -715,17 +657,7 @@ class ZCodeTarget(AgentTarget):
                     MCP_SERVER_ENTRY,
                 )
             )
-        changes.append(
-            FileChange(
-                _zcode_instructions(loc),
-                replace_or_append_marked_section(
-                    _zcode_instructions(loc),
-                    INSTRUCTIONS_BLOCK,
-                    SECTION_START,
-                    SECTION_END,
-                ),
-            )
-        )
+        changes.append(upsert_instructions(_zcode_instructions(loc)))
         return changes
 
     def uninstall(self, loc: Location) -> list[FileChange]:
@@ -739,14 +671,7 @@ class ZCodeTarget(AgentTarget):
                     project_dir() / ".agents" / "mcp.json", "mcpServers"
                 )
             )
-        changes.append(
-            FileChange(
-                _zcode_instructions(loc),
-                remove_marked_section(
-                    _zcode_instructions(loc), SECTION_START, SECTION_END
-                ),
-            )
-        )
+        changes.append(remove_instructions(_zcode_instructions(loc)))
         return changes
 
     def print_config(self) -> str:

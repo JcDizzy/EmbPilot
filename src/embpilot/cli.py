@@ -22,6 +22,7 @@ from collections.abc import Sequence
 
 from embpilot import __version__
 from embpilot.cli_flags import add_schema_flags, collect_flag_arguments
+from embpilot.cli_loop import known_tool_names, tool_help_text
 from embpilot.cli_format import format_result
 from embpilot.cli_shell import run_batch, run_serve, run_shell
 from embpilot.config import EmbPilotConfig
@@ -30,6 +31,36 @@ from embpilot.mcp_contracts import build_tool_definitions, dispatch_tool
 from embpilot.mcp_compat import result_structured, tool_input_schema
 
 _JSON_NOTE = "Pass arguments as a JSON object, not as a JSON-encoded string. "
+
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _force_utf8_stdio() -> None:
+    """Emit UTF-8 on Windows consoles/pipes so non-ASCII system messages
+    (e.g. Chinese serial-port errors) stay parseable by agents; replacement
+    chars keep output valid when the console codepage cannot represent them.
+    """
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+def _validate_socket_endpoint(endpoint: str) -> str:
+    """Reject non-loopback TCP endpoints: the daemon is a local-only service."""
+    if not endpoint.startswith("tcp:"):
+        return endpoint
+    host = endpoint[len("tcp:") :].rsplit(":", 1)[0]
+    if host not in _LOOPBACK_HOSTS:
+        raise ValueError(
+            f"refusing non-loopback daemon endpoint '{endpoint}': "
+            "bind 127.0.0.1 (or use unix:PATH on POSIX)"
+        )
+    return endpoint
 
 
 def _target_ids() -> str:
@@ -144,6 +175,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Stop at the first failing tool call (default: continue)",
     )
+    batch_p.add_argument(
+        "--json-output",
+        action="store_true",
+        help="Accepted for symmetry; batch always prints one JSON envelope per line",
+    )
 
     serve_p = sub.add_parser(
         "serve",
@@ -174,8 +210,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--connect",
-        required=True,
-        help="Connection arguments as a JSON object, e.g. '{\"port\": \"COM3\"}'",
+        default=None,
+        help="Connection arguments as a JSON object, e.g. '{\"port\": \"COM3\"}'; "
+        "omitted to run commands without connecting",
     )
     run_p.add_argument(
         "--timeout-ms",
@@ -245,51 +282,37 @@ def tools_text() -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def tool_help_text(name: str) -> str | None:
-    """Render detailed help for one tool, or None if it is unknown."""
-    tool = next(
-        (item for item in build_tool_definitions() if item.name == name),
-        None,
-    )
-    if tool is None:
-        return None
 
-    lines = [name, "=" * len(name), tool.description.replace(_JSON_NOTE, ""), ""]
-    schema = tool_input_schema(tool)
-    properties = schema.get("properties") or {}
-    required = set(schema.get("required") or [])
-    lines.append("Arguments (JSON object):")
-    for prop_name in sorted(properties):
-        prop = properties[prop_name]
-        marks = ["required"] if prop_name in required else []
-        if "default" in prop:
-            marks.append(f"default: {prop['default']}")
-        if prop.get("enum"):
-            marks.append(f"enum: {prop['enum']}")
-        suffix = f" ({', '.join(marks)})" if marks else ""
-        lines.append(f"  {prop_name}{suffix}: {prop.get('description', '')}")
-    examples = schema.get("examples") or []
-    if examples:
-        lines.append("")
-        lines.append("Examples:")
-        for example in examples:
-            lines.append(f"  {json.dumps(example, ensure_ascii=False)}")
-    return "\n".join(lines) + "\n"
+def _parse_tool_arguments(args: argparse.Namespace) -> dict | None:
+    """Parse --json and merge schema flags; prints the error and returns
+    None on invalid input (shared by local and --socket paths)."""
+    try:
+        arguments = collect_flag_arguments(
+            args, args.name, json.loads(args.json_args)
+        )
+    except json.JSONDecodeError as exc:
+        print(f"error: invalid JSON for --json: {exc}", file=sys.stderr)
+        return None
+    if not isinstance(arguments, dict):
+        print("error: --json must be a JSON object", file=sys.stderr)
+        return None
+    return arguments
+
+
+def _exit_code_for(payload: dict) -> int:
+    """Map an ok/data/error envelope to the CLI exit-code contract."""
+    if payload.get("ok") is True:
+        return 0
+    code = (payload.get("error") or {}).get("code", "OPERATION_FAILED")
+    return 2 if code in ("UNKNOWN_TOOL", "INVALID_ARGUMENT") else 1
 
 
 def _run_one_shot(args: argparse.Namespace, config: EmbPilotConfig) -> int:
     """Execute one tool call in a fresh process-scoped session manager."""
-    try:
-        arguments = collect_flag_arguments(args, args.name, json.loads(args.json_args))
-    except json.JSONDecodeError as exc:
-        print(f"error: invalid JSON for --json: {exc}", file=sys.stderr)
+    arguments = _parse_tool_arguments(args)
+    if arguments is None:
         return 2
-    if not isinstance(arguments, dict):
-        print("error: --json must be a JSON object", file=sys.stderr)
-        return 2
-
-    tool_names = {t.name for t in build_tool_definitions()}
-    if args.name not in tool_names:
+    if args.name not in known_tool_names():
         print(f"error: unknown tool '{args.name}' (see 'embpilot tools')", file=sys.stderr)
         return 2
 
@@ -305,11 +328,7 @@ def _run_one_shot(args: argparse.Namespace, config: EmbPilotConfig) -> int:
             await manager.shutdown()
 
         print(format_result(result, json_output=args.json_output))
-        payload = result_structured(result) or {}
-        if payload.get("ok") is True:
-            return 0
-        code = (payload.get("error") or {}).get("code", "OPERATION_FAILED")
-        return 2 if code in ("UNKNOWN_TOOL", "INVALID_ARGUMENT") else 1
+        return _exit_code_for(result_structured(result) or {})
 
     return asyncio.run(_run())
 
@@ -319,7 +338,7 @@ def _run_via_socket(args: argparse.Namespace) -> int:
     from embpilot.rpc import RpcClient, resolve_endpoint
 
     try:
-        endpoint = resolve_endpoint(args.socket)
+        endpoint = _validate_socket_endpoint(resolve_endpoint(args.socket))
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -330,13 +349,10 @@ def _run_via_socket(args: argparse.Namespace) -> int:
         return 0
 
     if args.command == "tool":
-        try:
-            arguments = json.loads(args.json_args)
-        except json.JSONDecodeError as exc:
-            print(f"error: invalid JSON for --json: {exc}", file=sys.stderr)
-            return 2
-        if not isinstance(arguments, dict):
-            print("error: --json must be a JSON object", file=sys.stderr)
+        # Mirror the local one-shot path exactly: schema flags merge over
+        # --json (a --socket call must behave identically to a local one).
+        arguments = _parse_tool_arguments(args)
+        if arguments is None:
             return 2
 
         async def _one_shot() -> int:
@@ -370,10 +386,7 @@ def _run_via_socket(args: argparse.Namespace) -> int:
                     print(f"error ({error.get('code')}): {error.get('message')}")
                     if error.get("suggestion"):
                         print(f"suggestion: {error['suggestion']}")
-            if response.get("ok") is True:
-                return 0
-            code = (response.get("error") or {}).get("code", "OPERATION_FAILED")
-            return 2 if code in ("UNKNOWN_TOOL", "INVALID_ARGUMENT") else 1
+            return _exit_code_for(response)
 
         return asyncio.run(_one_shot())
 
@@ -416,19 +429,24 @@ def _run_via_socket(args: argparse.Namespace) -> int:
 
 
 def _run_command_sequence(args: argparse.Namespace, config: EmbPilotConfig) -> int:
-    """Implement ``run``: connect -> commands -> disconnect as one batch."""
-    try:
-        connect_arguments = json.loads(args.connect)
-    except json.JSONDecodeError as exc:
-        print(f"error: invalid JSON for --connect: {exc}", file=sys.stderr)
-        return 2
-    if not isinstance(connect_arguments, dict):
-        print("error: --connect must be a JSON object", file=sys.stderr)
-        return 2
+    """Implement ``run``: [connect] -> commands -> disconnect as one batch.
 
-    requests: list[dict] = [
-        {"tool": f"connect_{args.interface}", "args": connect_arguments}
-    ]
+    Without ``--connect`` the command sequence runs without a connection
+    (each command fails with NO_ACTIVE_DEVICE, as in batch).
+    """
+    requests: list[dict] = []
+    if args.connect is not None:
+        try:
+            connect_arguments = json.loads(args.connect)
+        except json.JSONDecodeError as exc:
+            print(f"error: invalid JSON for --connect: {exc}", file=sys.stderr)
+            return 2
+        if not isinstance(connect_arguments, dict):
+            print("error: --connect must be a JSON object", file=sys.stderr)
+            return 2
+        requests.append(
+            {"tool": f"connect_{args.interface}", "args": connect_arguments}
+        )
     for command in args.commands:
         requests.append(
             {
@@ -458,7 +476,9 @@ def _run_command_sequence(args: argparse.Namespace, config: EmbPilotConfig) -> i
         manager = SessionManager(config)
         await manager.start()
         try:
-            return await batch_loop(manager, read_line=read_line)
+            # fail-fast: a failed connect must not cascade NO_ACTIVE_DEVICE
+            # noise through every remaining command.
+            return await batch_loop(manager, read_line=read_line, fail_fast=True)
         finally:
             await manager.shutdown()
 
@@ -477,8 +497,24 @@ def _tool_subparser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI entry point: server by default, subcommands for tool access."""
+    _force_utf8_stdio()
     parser = build_parser()
     argv = list(sys.argv[1:] if argv is None else argv)
+    # `embpilot tool <name> --help` shows the tool's own help (schema,
+    # examples, guidance) instead of the argparse usage. Intercept before
+    # parsing, because argparse's -h action would exit first.
+    if "--help" in argv or "-h" in argv:
+        try:
+            tool_index = argv.index("tool")
+        except ValueError:
+            tool_index = -1
+        if tool_index != -1 and tool_index + 1 < len(argv):
+            candidate = argv[tool_index + 1]
+            if not candidate.startswith("-"):
+                text = tool_help_text(candidate)
+                if text is not None:
+                    print(text, end="")
+                    return
     # The tool subcommand gets schema-driven flags; probe the tool name first.
     probe = parser.parse_known_args(argv)[0]
     if probe.command == "tool" and probe.name:
@@ -514,9 +550,13 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.command == "serve":
         try:
-            asyncio.run(run_serve(config, endpoint=args.socket))
+            endpoint = _validate_socket_endpoint(args.socket) if args.socket else None
+            asyncio.run(run_serve(config, endpoint=endpoint))
         except KeyboardInterrupt:
             print("bye")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            raise SystemExit(2)
         return
 
     if args.command == "help":

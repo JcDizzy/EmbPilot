@@ -368,7 +368,9 @@ prompt 文本直接给出可执行的工具序列与参数示例：
 - **`resources/subscribe` 推送**（F4）：轮询已满足观察需求，协议升级成本高，不做。
 - **reset dtr/rts**（F5）：不在本轮范围，schema 维持只广告 reboot 的诚实状态。
 - **TCP 远程访问 / 鉴权体系**：仅本机 socket；无密码/密钥认证（信任本机用户）。
-- **GUI / 交互式配置向导**。
+  `tcp:` 端点强制 loopback（127.0.0.1/localhost/::1），绑定其他地址被拒绝。
+- **GUI**（installer 的交互模式是 CLI 子命令 `embpilot install`，非 GUI；
+  该子命令属于本轮已实现的增补范围，见 change.log）。
 - **改动既有契约**：退出码 0/1/2、`ok/data/error` envelope、
   `--json-output`、`tools` 目录格式全部保持不变。
 - **monitor 的 `[log]`/`[cmd]` 前缀格式**：终端既有行为不变。

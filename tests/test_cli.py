@@ -24,6 +24,8 @@ def _run_cli(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=REPO_ROOT,
         input=input,
     )
@@ -42,6 +44,8 @@ def test_help_does_not_import_server_runtime() -> None:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -133,12 +137,12 @@ def test_run_connects_runs_and_disconnects(tmp_path: Path) -> None:
         data_dir=tmp_path,
     )
 
-    # connect fails (COM9 missing) but the sequence still executes end-to-end.
+    # fail-fast: the failed connect (COM9 missing) stops the sequence, so
+    # only the connect line is emitted and the exit code is 1.
     assert completed.returncode == 1
     lines = [line for line in completed.stdout.splitlines() if line.strip()]
-    assert len(lines) == 4  # connect + 2 commands + disconnect
+    assert len(lines) == 1
     assert "CONNECTION_FAILED" in lines[0]
-    assert '"ok": true' in lines[-1]  # disconnect succeeded
 
 
 def test_run_rejects_invalid_connect_json() -> None:
@@ -386,3 +390,26 @@ def test_shell_accepts_utf8_bom_piped_stdin(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     assert "unknown tool" not in out
     assert "Found 0 session(s)." in out
+
+
+def test_shell_help_tool_shows_tool_help(tmp_path: Path) -> None:
+    completed = subprocess.run(
+        [sys.executable, "-m", "embpilot", "--data-dir", str(tmp_path), "shell"],
+        input="help read_output\nexit\n".encode("utf-8"),
+        check=False,
+        capture_output=True,
+        cwd=REPO_ROOT,
+    )
+
+    out = completed.stdout.decode("utf-8", errors="replace")
+    assert completed.returncode == 0, completed.stderr
+    assert "read_output" in out
+    assert "Arguments (JSON object):" in out
+
+
+def test_tool_help_flag_shows_tool_help(tmp_path: Path) -> None:
+    completed = _run_cli("tool", "send_command", "--help")
+
+    assert completed.returncode == 0, completed.stderr
+    assert "Arguments (JSON object):" in completed.stdout
+    assert "expect_regex" in completed.stdout

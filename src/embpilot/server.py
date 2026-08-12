@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 import uuid
@@ -376,7 +377,8 @@ class SessionManager:
         sessions = await self._main_db.list_sessions()
         match = [s for s in sessions if s["session_id"] == session_id]
         if not match:
-            raise ValueError(f"Session not found: {session_id}")
+            # NOT_FOUND (spec): FileNotFoundError maps to that error code.
+            raise FileNotFoundError(f"Session not found: {session_id}")
         db_path = Path(match[0]["db_path"])
         if not db_path.exists():
             raise FileNotFoundError(f"Session db file gone: {db_path}")
@@ -399,7 +401,8 @@ class SessionManager:
         sessions = await self._main_db.list_sessions()
         match = [s for s in sessions if s["session_id"] == session_id]
         if not match:
-            raise ValueError(f"Session not found: {session_id}")
+            # NOT_FOUND (spec): FileNotFoundError maps to that error code.
+            raise FileNotFoundError(f"Session not found: {session_id}")
         src = Path(match[0]["db_path"])
         if not src.exists():
             raise FileNotFoundError(f"Session db file gone: {src}")
@@ -538,14 +541,26 @@ async def render_resource(manager: SessionManager, uri: AnyUrl) -> str | bytes:
         if manager._active is None:
             return "No active device connection."
         active = manager._active
-        import json as _json
-
-        info = {
+        info: dict = {
             "session_id": active.session_id,
             "ring_buffer_lines": len(active.ring.snapshot()),
             "stored_log_rows": await active.session_db.count_logs(),
         }
-        return _json.dumps(info, ensure_ascii=False, indent=2)
+        # Session registry metadata: interface, device, start time.
+        sessions = await manager.main_db().list_sessions()
+        match = [s for s in sessions if s["session_id"] == active.session_id]
+        if match:
+            row = match[0]
+            for key in ("interface", "device_name", "started_at", "status"):
+                if row.get(key) is not None:
+                    info[key] = row[key]
+        # Recent error-like patterns from the session analytics.
+        rows = await active.session_db.get_analytics()
+        if rows:
+            info["recent_error_patterns"] = [
+                {"count": r["cnt"], "pattern": r["text"]} for r in rows[:5]
+            ]
+        return json.dumps(info, ensure_ascii=False, indent=2)
 
     return f"Unknown resource: {uri}"
 

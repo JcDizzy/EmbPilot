@@ -330,3 +330,19 @@
 - Full suite: 141 passed, 1 skipped.
 - Remaining: WSL/Linux full run to exercise the unix-socket path; pytest-cov
   installed locally for coverage reporting.
+
+## 2026-08-12 - codex review round (implemented)
+
+### Done
+- All codex review findings addressed (except installer keep/remove, which
+  was kept and the spec updated to scope it in):
+  - behavior bugs: --socket flag merging, NOT_FOUND error codes, batch
+    --json-output accepted
+  - robustness: UTF-8 stdout on Windows (Chinese system messages), serve
+    refuses non-loopback TCP, run fail-fast
+  - spec gaps: shell `help <tool>`, `tool <name> --help`, optional
+    `run --connect`, Pitfalls on all 11 tools, session_info metadata fields
+  - consistency: run_uninstall respects supports_location
+  - dedup: interactive flow, one-shot parse/exit-code mapping, JSONL request
+    parser (batch + rpc), target instructions helpers
+- Full suite: 143 passed, 1 skipped.

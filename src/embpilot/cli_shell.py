@@ -75,9 +75,18 @@ async def shell_loop(
                 print("Tools: " + ", ".join(sorted(tool_names)))
                 print('Example: connect_serial {"port": "COM3", "baudrate": 115200}')
                 print(
-                    "Commands: help, exit, monitor (live output), "
+                    "Commands: help, help <tool>, exit, monitor (live output), "
                     "stop (exit monitor)"
                 )
+                continue
+            if line.startswith("help "):
+                from embpilot.cli_loop import tool_help_text
+
+                text = tool_help_text(line[len("help ") :].strip())
+                if text is None:
+                    print(f"error: unknown tool '{line[len('help '):].strip()}'")
+                else:
+                    print(text, end="")
                 continue
             if line == "monitor":
                 ring = getattr(manager, "active_ring", None)

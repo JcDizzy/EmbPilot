@@ -1,10 +1,11 @@
 """
-Shared line-driven dispatch machinery for shell, batch, and (future) serve.
+Shared line-driven dispatch machinery for shell, batch, and serve.
 
-The REPL (``shell``), the scripted ``batch`` mode, and the planned ``serve``
-daemon all follow the same pattern: read one line, parse it into a tool call,
-dispatch through the shared contract layer, and render one result.  This module
-owns that pattern so the three entry points stay thin and behave identically.
+The REPL (``shell``), the scripted ``batch`` mode, and the ``serve`` daemon
+all follow the same pattern: read one line, parse it into a tool call,
+dispatch through the shared contract layer, and render one result.  This
+module owns that pattern so the three entry points stay thin and behave
+identically.
 """
 
 from __future__ import annotations
@@ -15,10 +16,40 @@ import sys
 from collections.abc import Awaitable, Callable
 
 from embpilot.cli_format import format_result
-from embpilot.mcp_compat import result_structured
+from embpilot.mcp_compat import result_structured, tool_input_schema
 from embpilot.mcp_contracts import SessionOperations, build_tool_definitions, dispatch_tool
 
+_JSON_NOTE = "Pass arguments as a JSON object, not as a JSON-encoded string. "
+
+
 _PROMPT = "embpilot> "
+
+
+class RequestParseError(ValueError):
+    """Raised when a JSONL request line is malformed (shared by batch and
+    the serve daemon's request parser)."""
+
+
+def parse_request_line(line: str) -> tuple[dict, str, dict]:
+    """Parse one JSONL tool request: ``{"tool": ..., "args": {...}}``.
+
+    Returns ``(request, name, arguments)``; raises ``RequestParseError`` on
+    malformed input (bad JSON, missing tool, non-object args).
+    """
+    try:
+        request = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise RequestParseError(f"invalid JSON: {exc}") from exc
+    if not isinstance(request, dict) or "tool" not in request:
+        raise RequestParseError(
+            'request must be {"tool": "<name>", "args": {...}}'
+        )
+    arguments = request.get("args")
+    if arguments is None:
+        arguments = {}
+    elif not isinstance(arguments, dict):
+        raise RequestParseError("args must be a JSON object")
+    return request, request["tool"], arguments
 
 
 def known_tool_names() -> frozenset[str]:
@@ -114,22 +145,9 @@ async def batch_loop(
             break
 
         try:
-            request = json.loads(line)
-        except json.JSONDecodeError as exc:
-            print(f"error: invalid JSON on stdin: {exc}", file=sys.stderr)
-            return 2
-        if not isinstance(request, dict) or "tool" not in request:
-            print(
-                'error: each stdin line must be {"tool": "<name>", "args": {...}}',
-                file=sys.stderr,
-            )
-            return 2
-        name = request["tool"]
-        arguments = request.get("args")
-        if arguments is None:
-            arguments = {}
-        elif not isinstance(arguments, dict):
-            print("error: args must be a JSON object", file=sys.stderr)
+            _request, name, arguments = parse_request_line(line)
+        except RequestParseError as exc:
+            print(f"error: {exc}", file=sys.stderr)
             return 2
         if name not in tool_names:
             print(f"error: unknown tool '{name}'", file=sys.stderr)
@@ -143,3 +161,36 @@ async def batch_loop(
                 break
 
     return exit_code
+
+
+def tool_help_text(name: str) -> str | None:
+    """Render detailed help for one tool, or None if it is unknown."""
+    tool = next(
+        (item for item in build_tool_definitions() if item.name == name),
+        None,
+    )
+    if tool is None:
+        return None
+
+    lines = [name, "=" * len(name), tool.description.replace(_JSON_NOTE, ""), ""]
+    schema = tool_input_schema(tool)
+    properties = schema.get("properties") or {}
+    required = set(schema.get("required") or [])
+    lines.append("Arguments (JSON object):")
+    for prop_name in sorted(properties):
+        prop = properties[prop_name]
+        marks = ["required"] if prop_name in required else []
+        if "default" in prop:
+            marks.append(f"default: {prop['default']}")
+        if prop.get("enum"):
+            marks.append(f"enum: {prop['enum']}")
+        suffix = f" ({', '.join(marks)})" if marks else ""
+        lines.append(f"  {prop_name}{suffix}: {prop.get('description', '')}")
+    examples = schema.get("examples") or []
+    if examples:
+        lines.append("")
+        lines.append("Examples:")
+        for example in examples:
+            lines.append(f"  {json.dumps(example, ensure_ascii=False)}")
+    return "\n".join(lines) + "\n"
+

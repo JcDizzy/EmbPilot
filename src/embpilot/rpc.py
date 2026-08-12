@@ -135,20 +135,13 @@ class RpcServer:
             await writer.wait_closed()
 
     async def _dispatch_line(self, line: str) -> dict:
+        from embpilot.cli_loop import RequestParseError, parse_request_line
+
         try:
-            request = json.loads(line)
-        except json.JSONDecodeError as exc:
-            return self._parse_error(None, f"invalid JSON request: {exc}")
-        if not isinstance(request, dict) or "tool" not in request:
-            return self._parse_error(
-                None,
-                'request must be {"id": ..., "tool": ..., "args": {...}}',
-            )
+            request, name, arguments = parse_request_line(line)
+        except RequestParseError as exc:
+            return self._parse_error(None, str(exc))
         req_id = request.get("id")
-        name = request["tool"]
-        arguments = request.get("args") or {}
-        if not isinstance(arguments, dict):
-            return self._parse_error(req_id, "args must be a JSON object")
 
         async with self._lock:
             result = await dispatch_tool(self._manager, name, arguments)
