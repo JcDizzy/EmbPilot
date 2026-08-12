@@ -1,5 +1,23 @@
 # Progress
 
+## 2026-08-12 — session_info resource + skill sync (implemented)
+
+### Done
+- `device://session_info` resource (session_id, ring depth, stored log rows
+  as JSON); resources extracted into module-level
+  `build_resources`/`render_resource` (same pattern as prompts/tools).
+- `SessionDatabase.count_logs()` added.
+- SKILL.md synced: new tools (read_output, batch, serve, run, flags, help),
+  structured guidance, and a CLI-only agent section (pi-style callers).
+- Decision recorded: monitor `--until/--timeout` (M5) skipped — `read_output`
+  already provides wait-until-marker semantics at every entry point.
+- Full suite: 105 passed, 1 skipped (unix-socket test, POSIX only).
+
+### Current status
+- All planned changes done. Remaining: run the full suite in WSL/Linux to
+  exercise the unix-socket path (skipped on Windows). Commands:
+  `python -m venv .venv && .venv/bin/pip install -e ".[dev]" && .venv/bin/python -m pytest -q`
+
 ## 2026-08-12 — M4: session_id search, schema flags, run (implemented)
 
 ### Done

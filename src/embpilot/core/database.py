@@ -273,6 +273,14 @@ class SessionDatabase:
         )
         await self._conn.commit()
 
+    async def count_logs(self) -> int:
+        """Return the number of log rows stored in this session."""
+        if self._conn is None:
+            return 0
+        cursor = await self._conn.execute("SELECT COUNT(*) AS n FROM device_logs")
+        row = await cursor.fetchone()
+        return int(row["n"])
+
     async def search_logs(
         self,
         keyword: str,

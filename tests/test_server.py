@@ -230,3 +230,52 @@ async def test_search_history_logs_by_session_id_after_disconnect(
             )
     finally:
         await manager.shutdown()
+
+
+def test_resource_catalog_includes_session_info() -> None:
+    from embpilot.server import build_resources
+
+    uris = {str(resource.uri) for resource in build_resources()}
+    assert "device://session_info" in uris
+    assert "device://live_log" in uris
+
+
+@pytest.mark.asyncio
+async def test_session_info_resource_reports_active_session(tmp_path: Path) -> None:
+    from embpilot.server import render_resource
+
+    device = EchoDevice()
+    config = EmbPilotConfig(data_dir=tmp_path)
+    config.ensure_data_dirs()
+    manager = SessionManager(config, device_factory=lambda _i, _c: device)
+    await manager.start()
+    try:
+        session_id = await manager.connect_device("serial", {"port": "COM3"})
+        import json
+
+        from mcp.types import AnyUrl
+
+        payload = await render_resource(manager, AnyUrl("device://session_info"))
+        info = json.loads(payload)
+        assert info["session_id"] == session_id
+        assert info["ring_buffer_lines"] == 0
+        assert info["stored_log_rows"] == 0
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_session_info_without_connection_is_graceful(tmp_path: Path) -> None:
+    from embpilot.server import render_resource
+
+    from mcp.types import AnyUrl
+
+    config = EmbPilotConfig(data_dir=tmp_path)
+    config.ensure_data_dirs()
+    manager = SessionManager(config, device_factory=lambda _i, _c: EchoDevice())
+    await manager.start()
+    try:
+        payload = await render_resource(manager, AnyUrl("device://session_info"))
+        assert payload == "No active device connection."
+    finally:
+        await manager.shutdown()

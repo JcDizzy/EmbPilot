@@ -453,6 +453,92 @@ def _build_device(interface: str, cfg: dict[str, Any]) -> BaseDevice:
         raise ValueError(f"Unsupported interface: {interface}")
 
 
+# ── Resource catalog ────────────────────────────────────────────────────────
+
+
+def build_resources() -> list[Resource]:
+    """The read-only data sources advertised to agents."""
+    return [
+        Resource(
+            uri=AnyUrl("device://live_log"),
+            name="Live Device Log",
+            description="Recent 2000 lines of device output from the active session",
+            mimeType="text/plain",
+        ),
+        Resource(
+            uri=AnyUrl("device://sysinfo"),
+            name="System Info Snapshot",
+            description="Aggregated system information from the connected device",
+            mimeType="text/markdown",
+        ),
+        Resource(
+            uri=AnyUrl("device://analytics"),
+            name="Error Analytics",
+            description="Frequency table of error-like patterns in the current session",
+            mimeType="text/plain",
+        ),
+        Resource(
+            uri=AnyUrl("device://session_info"),
+            name="Session Info",
+            description="Current session metadata: id, ring depth, stored log rows",
+            mimeType="application/json",
+        ),
+    ]
+
+
+async def render_resource(manager: SessionManager, uri: AnyUrl) -> str | bytes:
+    """Render one device resource against the given session manager."""
+    uri_str = str(uri)
+
+    if uri_str == "device://live_log":
+        if manager.active_ring is None:
+            return "No active device connection."
+        lines = [line.formatted() for line in manager.active_ring.snapshot()]
+        return "\n".join(lines) or "(no log data yet)"
+
+    elif uri_str == "device://sysinfo":
+        if manager._active is None:
+            return "No active device connection."
+        # Collect sysinfo via command sequence
+        cmds = ["help", "version", "free", "ps", "uname -a"]
+        parts = [f"# System Info ({datetime.now(timezone.utc).isoformat()})", ""]
+        for cmd in cmds:
+            try:
+                out = (await manager.send_command(cmd, timeout_ms=3000)).output
+                parts.append(f"## {cmd}")
+                parts.append(out)
+                parts.append("")
+            except Exception:
+                parts.append(f"## {cmd}")
+                parts.append("(command failed)")
+                parts.append("")
+        return "\n".join(parts)
+
+    elif uri_str == "device://analytics":
+        if manager._active and manager._active.session_db:
+            rows = await manager._active.session_db.get_analytics()
+            if not rows:
+                return "No error patterns detected."
+            lines = [f"{r['cnt']:5d}x | {r['text']}" for r in rows]
+            return "Count | Pattern\n" + "-" * 40 + "\n" + "\n".join(lines)
+        return "No active session."
+
+    elif uri_str == "device://session_info":
+        if manager._active is None:
+            return "No active device connection."
+        active = manager._active
+        import json as _json
+
+        info = {
+            "session_id": active.session_id,
+            "ring_buffer_lines": len(active.ring.snapshot()),
+            "stored_log_rows": await active.session_db.count_logs(),
+        }
+        return _json.dumps(info, ensure_ascii=False, indent=2)
+
+    return f"Unknown resource: {uri}"
+
+
 # ── Prompt catalog ──────────────────────────────────────────────────────────
 
 
@@ -628,65 +714,11 @@ def serve(config: EmbPilotConfig) -> None:
 
     @app.list_resources()
     async def list_resources() -> list[Resource]:
-        return [
-            Resource(
-                uri=AnyUrl("device://live_log"),
-                name="Live Device Log",
-                description="Recent 2000 lines of device output from the active session",
-                mimeType="text/plain",
-            ),
-            Resource(
-                uri=AnyUrl("device://sysinfo"),
-                name="System Info Snapshot",
-                description="Aggregated system information from the connected device",
-                mimeType="text/markdown",
-            ),
-            Resource(
-                uri=AnyUrl("device://analytics"),
-                name="Error Analytics",
-                description="Frequency table of error-like patterns in the current session",
-                mimeType="text/plain",
-            ),
-        ]
+        return build_resources()
 
     @app.read_resource()
     async def read_resource(uri: AnyUrl) -> str | bytes:
-        uri_str = str(uri)
-
-        if uri_str == "device://live_log":
-            if manager.active_ring is None:
-                return "No active device connection."
-            lines = [line.formatted() for line in manager.active_ring.snapshot()]
-            return "\n".join(lines) or "(no log data yet)"
-
-        elif uri_str == "device://sysinfo":
-            if manager._active is None:
-                return "No active device connection."
-            # Collect sysinfo via command sequence
-            cmds = ["help", "version", "free", "ps", "uname -a"]
-            parts = [f"# System Info ({datetime.now(timezone.utc).isoformat()})", ""]
-            for cmd in cmds:
-                try:
-                    out = (await manager.send_command(cmd, timeout_ms=3000)).output
-                    parts.append(f"## {cmd}")
-                    parts.append(out)
-                    parts.append("")
-                except Exception:
-                    parts.append(f"## {cmd}")
-                    parts.append("(command failed)")
-                    parts.append("")
-            return "\n".join(parts)
-
-        elif uri_str == "device://analytics":
-            if manager._active and manager._active.session_db:
-                rows = await manager._active.session_db.get_analytics()
-                if not rows:
-                    return "No error patterns detected."
-                lines = [f"{r['cnt']:5d}x | {r['text']}" for r in rows]
-                return "Count | Pattern\n" + "-" * 40 + "\n" + "\n".join(lines)
-            return "No active session."
-
-        return f"Unknown resource: {uri}"
+        return await render_resource(manager, uri)
 
     # ── Prompts ──────────────────────────────────────────────────────
 

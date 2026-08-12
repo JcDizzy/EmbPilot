@@ -3,6 +3,14 @@
 ## 0.1.0 (unreleased)
 
 ### Added
+- `device://session_info` resource: current session metadata (session_id,
+  ring-buffer depth, stored log rows) as JSON. Resource catalog extracted
+  into module-level `build_resources`/`render_resource` for testability.
+- Skill file (`embpilot-device-debugging`) synced with the new tools
+  (`read_output`, `batch`, `serve`, `run`, flags, `help`) and a CLI-only
+  agent section for clients without MCP support.
+- Decided against monitor `--until/--timeout`: `read_output` already covers
+  the wait-until-marker semantics across every entry point.
 - `search_history_logs` accepts an optional `session_id`; closed sessions are
   opened read-only and searched without touching the active connection.
 - Schema-driven flags for `embpilot tool` (`--port COM3 --baudrate 9600`);
