@@ -34,6 +34,15 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- `serve --daemon` (spec 5.2): detaches a serve subprocess into the
+  background, writes <data-dir>/daemon.pid + serve.log, waits until the
+  endpoint file exists, then exits 0. Idempotent: a second --daemon against
+  a live daemon reports "already running". The child reuses the current
+  interpreter (sys.executable) so it runs this exact environment; on
+  Anaconda venvs the redirector-stub pid chain is handled correctly. Added
+  `daemon.pid` write/cleanup in run_serve.
+- High-throughput test made load-immune (poll for queue drain instead of a
+  fixed sleep).
 - Codex review round fixes:
   - `--socket` tool calls now merge schema flags exactly like local ones
     (flags were silently dropped over the socket, violating equivalence).

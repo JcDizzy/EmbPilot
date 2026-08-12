@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from collections.abc import Awaitable, Callable
 
 from embpilot.cli_loop import (
@@ -180,11 +181,14 @@ async def run_serve(config: EmbPilotConfig, *, endpoint: str | None = None) -> N
     await manager.start()
     await server.start()
     endpoint_file = write_endpoint_file(config.data_dir, server.listening_endpoint)
+    pid_file = config.data_dir / "daemon.pid"
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
     print(f"embpilot serve listening on {server.listening_endpoint}")
     print(f"endpoint file: {endpoint_file}")
     try:
         await server.serve_forever()
     finally:
+        pid_file.unlink(missing_ok=True)
         await server.close()
         await manager.shutdown()
 

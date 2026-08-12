@@ -45,6 +45,7 @@ embpilot tool list_sessions
 embpilot shell                      # interactive REPL with a persistent session
 embpilot batch                      # scripted JSONL mode: one request per stdin line
 embpilot serve                      # persistent daemon sharing one session across calls
+embpilot serve --daemon             # detach into the background (writes daemon.pid)
 embpilot --socket daemon.json tool list_sessions   # talk to a running daemon
 ```
 

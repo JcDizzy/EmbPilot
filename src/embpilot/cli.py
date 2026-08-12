@@ -17,8 +17,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from embpilot import __version__
 from embpilot.cli_flags import add_schema_flags, collect_flag_arguments
@@ -190,6 +192,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Listen endpoint: unix:PATH (POSIX) or tcp:HOST:PORT (Windows); "
         "defaults to a platform-appropriate loopback endpoint",
+    )
+    serve_p.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Detach into the background: spawns a detached serve process, "
+        "writes <data-dir>/daemon.pid, waits until the endpoint file "
+        "(<data-dir>/daemon.json) exists, then exits",
     )
 
     help_p = sub.add_parser(
@@ -495,6 +504,123 @@ def _tool_subparser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     raise RuntimeError("tool subparser not found")
 
 
+def _daemon_argv_and_env(config: EmbPilotConfig, endpoint: str | None):
+    """Build the detached child argv + env for ``serve --daemon``.
+
+    Uses the same interpreter as the current process (sys.executable), so the
+    child always runs this exact environment and codebase. Anaconda venv
+    python.exe is a redirector stub (CreateProcess returns the stub pid while
+    the real interpreter runs under another pid); the stub chain survives the
+    parent's exit, which is all that matters here.
+    """
+    argv = [sys.executable, "-m", "embpilot"]
+    if args_data_dir_flag(config):
+        argv += ["--data-dir", str(config.data_dir)]
+    argv += ["serve"]
+    if endpoint:
+        argv += ["--socket", endpoint]
+    return argv, os.environ.copy()
+
+
+def _run_serve_daemon(config: EmbPilotConfig, endpoint: str | None) -> int:
+    """Implement ``serve --daemon``: detach a serve subprocess and wait for
+    it to become ready (endpoint file written). Returns the exit code.
+    """
+    import subprocess
+    import time
+
+    config.ensure_data_dirs()
+    pid_file = config.data_dir / "daemon.pid"
+    if pid_file.exists():
+        try:
+            old_pid = int(pid_file.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            old_pid = 0
+        if old_pid and _pid_alive(old_pid):
+            print(f"daemon already running (pid {old_pid}); endpoint: "
+                  f"{config.data_dir / 'daemon.json'}")
+            return 0
+        pid_file.unlink(missing_ok=True)
+
+    log_path = config.data_dir / "serve.log"
+    log_file = open(log_path, "ab", buffering=0)
+    argv, env = _daemon_argv_and_env(config, endpoint)
+
+    kwargs: dict = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": log_file,
+        "stderr": log_file,
+        "close_fds": True,
+        "env": env,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        )
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        proc = subprocess.Popen(argv, **kwargs)
+    except OSError as exc:
+        log_file.close()
+        print(f"error: failed to start daemon: {exc}", file=sys.stderr)
+        return 1
+
+    # The detached serve process writes daemon.pid itself; wait for the
+    # endpoint file so the caller knows it is actually listening.
+    endpoint_file = config.data_dir / "daemon.json"
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if endpoint_file.exists():
+            try:
+                import json as _json
+
+                info = _json.loads(endpoint_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                info = None
+            if info and info.get("endpoint"):
+                log_file.close()
+                print(f"daemon started (pid {proc.pid})")
+                print(f"endpoint: {info['endpoint']}")
+                print(f"endpoint file: {endpoint_file}")
+                print(f"log file: {log_path}")
+                return 0
+        if proc.poll() is not None:
+            log_file.close()
+            print(
+                f"error: daemon exited during startup (code {proc.returncode}); "
+                f"see {log_path}",
+                file=sys.stderr,
+            )
+            return 1
+        time.sleep(0.2)
+    log_file.close()
+    print("error: daemon did not become ready within 10s; see " + str(log_path),
+          file=sys.stderr)
+    return 1
+
+
+def _pid_alive(pid: int) -> bool:
+    """Best-effort liveness check (no signal is sent on Windows)."""
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    except SystemError:
+        # Windows: kill(pid, 0) can raise SystemError for existing-but-
+        # inaccessible processes; treat as alive to avoid duplicate daemons.
+        return True
+    return True
+
+
+def args_data_dir_flag(config: EmbPilotConfig) -> bool:
+    """Whether the data dir differs from the platform default (so the
+    detached child inherits it explicitly)."""
+    from embpilot.config import _default_data_dir
+
+    return config.data_dir != _default_data_dir()
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI entry point: server by default, subcommands for tool access."""
     _force_utf8_stdio()
@@ -551,6 +677,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "serve":
         try:
             endpoint = _validate_socket_endpoint(args.socket) if args.socket else None
+            if args.daemon:
+                raise SystemExit(_run_serve_daemon(config, endpoint))
             asyncio.run(run_serve(config, endpoint=endpoint))
         except KeyboardInterrupt:
             print("bye")

@@ -76,8 +76,13 @@ async def test_high_throughput_pipeline():
             # Wait for producer to finish
             await asyncio.wait_for(producer_task, timeout=30.0)
 
-            # Give db_consumer a moment to flush remaining lines
-            await asyncio.sleep(1.0)
+            # Let db_consumer drain the queue (poll instead of a fixed sleep
+            # so the test is immune to load-induced timing shifts).
+            deadline = asyncio.get_running_loop().time() + 10.0
+            while not queue.empty():
+                if asyncio.get_running_loop().time() > deadline:
+                    break
+                await asyncio.sleep(0.05)
             await db_consumer.stop()
 
             # Verify ring buffer (should have last 2000 lines)

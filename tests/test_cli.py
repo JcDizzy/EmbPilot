@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -413,3 +414,68 @@ def test_tool_help_flag_shows_tool_help(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     assert "Arguments (JSON object):" in completed.stdout
     assert "expect_regex" in completed.stdout
+
+
+def _read_pid(pid_file: Path) -> int:
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if pid_file.exists():
+            return int(pid_file.read_text(encoding="utf-8").strip())
+        time.sleep(0.2)
+    raise TimeoutError(f"pid file never appeared: {pid_file}")
+
+
+def _kill_pid(pid: int) -> None:
+    try:
+        import signal
+
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+
+
+def test_serve_daemon_detaches_and_becomes_ready(tmp_path: Path) -> None:
+    """serve --daemon spawns a detached process, writes pid + endpoint files,
+    and the parent exits 0 once ready; the daemon answers --socket calls."""
+    completed = _run_cli("serve", "--daemon", data_dir=tmp_path)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "daemon started" in completed.stdout
+    endpoint_file = tmp_path / "daemon.json"
+    assert endpoint_file.exists()
+    pid = _read_pid(tmp_path / "daemon.pid")
+
+    try:
+        # The detached daemon is reachable via --socket.
+        call = _run_cli(
+            "--socket", str(endpoint_file), "tool", "list_sessions", "--json-output"
+        )
+        assert call.returncode == 0, call.stderr
+        assert '"ok": true' in call.stdout
+    finally:
+        _kill_pid(pid)
+        time.sleep(1)
+
+
+def test_serve_daemon_idempotent_when_already_running(tmp_path: Path) -> None:
+    first = _run_cli("serve", "--daemon", data_dir=tmp_path)
+    assert first.returncode == 0, first.stderr
+    pid = _read_pid(tmp_path / "daemon.pid")
+    try:
+        second = _run_cli("serve", "--daemon", data_dir=tmp_path)
+        assert second.returncode == 0, second.stderr
+        assert "already running" in second.stdout
+    finally:
+        _kill_pid(pid)
+        time.sleep(1)
+
+
+def test_serve_daemon_writes_log_file(tmp_path: Path) -> None:
+    completed = _run_cli("serve", "--daemon", data_dir=tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    pid = _read_pid(tmp_path / "daemon.pid")
+    try:
+        assert (tmp_path / "serve.log").exists()
+    finally:
+        _kill_pid(pid)
+        time.sleep(1)

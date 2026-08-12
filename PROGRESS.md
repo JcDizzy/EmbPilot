@@ -346,3 +346,20 @@
   - dedup: interactive flow, one-shot parse/exit-code mapping, JSONL request
     parser (batch + rpc), target instructions helpers
 - Full suite: 143 passed, 1 skipped.
+
+## 2026-08-12 - serve --daemon (codex round 2, implemented)
+
+### Done
+- `serve --daemon` (spec 5.2, was the last open finding): detaches a serve
+  subprocess, writes daemon.pid + serve.log, waits for the endpoint file,
+  exits 0; idempotent "already running" on repeat; pid file written/cleaned
+  by run_serve.
+- Root-caused the Windows failure path: Anaconda venv python.exe is a
+  redirector stub (CreateProcess returns the stub pid, the real interpreter
+  runs under another pid; the chain survives parent exit). Base-interpreter
+  + PYTHONPATH injection fails because venv .pyd extensions (pywin32) do
+  not load under the base interpreter - reverted to sys.executable, which
+  works for both `python -m embpilot` and `embpilot.exe` entries.
+- Also hardened the throughput test (poll for queue drain; it was flaky
+  under full-suite load).
+- Full suite: 146 passed, 1 skipped (twice in a row).
