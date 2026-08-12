@@ -155,3 +155,35 @@ async def test_session_manager_captures_prompt_without_newline(tmp_path: Path) -
         assert "login:" in result.output
     finally:
         await manager.shutdown()
+
+
+
+def test_prompt_catalog_includes_new_scenario_templates() -> None:
+    from embpilot.server import build_prompts
+
+    names = {prompt.name for prompt in build_prompts()}
+    assert {
+        "connect_and_explore",
+        "capture_boot_log",
+        "diagnose_connection",
+        "design_expect",
+        "session_handoff",
+    } <= names
+
+
+def test_prompt_texts_contain_actionable_tool_sequences() -> None:
+    from embpilot.server import render_prompt
+
+    boot = render_prompt("capture_boot_log").messages[0].content.text
+    assert "reset_target" in boot
+    assert "read_output" in boot
+
+    explore = render_prompt("connect_and_explore", {"interface": "ssh"}).messages[0].content.text
+    assert "connect_ssh" in explore
+
+    expect = render_prompt("design_expect").messages[0].content.text
+    assert "expect_regex" in expect
+    assert "read_output" in expect
+
+    with pytest.raises(ValueError):
+        render_prompt("bogus_prompt")

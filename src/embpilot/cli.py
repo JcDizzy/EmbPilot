@@ -25,7 +25,7 @@ from embpilot.cli_format import format_result
 from embpilot.cli_shell import run_batch, run_serve, run_shell
 from embpilot.config import EmbPilotConfig
 from embpilot.mcp_contracts import build_tool_definitions, dispatch_tool
-from embpilot.mcp_compat import result_structured
+from embpilot.mcp_compat import result_structured, tool_input_schema
 
 _JSON_NOTE = "Pass arguments as a JSON object, not as a JSON-encoded string. "
 
@@ -150,6 +150,12 @@ def build_parser() -> argparse.ArgumentParser:
         "defaults to a platform-appropriate loopback endpoint",
     )
 
+    help_p = sub.add_parser(
+        "help",
+        help="Show detailed help for one tool (schema, examples, guidance)",
+    )
+    help_p.add_argument("name", help="Tool name, e.g. connect_serial")
+
     return parser
 
 
@@ -159,6 +165,43 @@ def tools_text() -> str:
     for tool in sorted(build_tool_definitions(), key=lambda item: item.name):
         description = tool.description.replace(_JSON_NOTE, "")
         lines.append(f"{tool.name}\n  {description}")
+        schema = tool_input_schema(tool)
+        examples = schema.get("examples") or []
+        if examples:
+            lines.append(f"  example: {json.dumps(examples[0], ensure_ascii=False)}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def tool_help_text(name: str) -> str | None:
+    """Render detailed help for one tool, or None if it is unknown."""
+    tool = next(
+        (item for item in build_tool_definitions() if item.name == name),
+        None,
+    )
+    if tool is None:
+        return None
+
+    lines = [name, "=" * len(name), tool.description.replace(_JSON_NOTE, ""), ""]
+    schema = tool_input_schema(tool)
+    properties = schema.get("properties") or {}
+    required = set(schema.get("required") or [])
+    lines.append("Arguments (JSON object):")
+    for prop_name in sorted(properties):
+        prop = properties[prop_name]
+        marks = ["required"] if prop_name in required else []
+        if "default" in prop:
+            marks.append(f"default: {prop['default']}")
+        if prop.get("enum"):
+            marks.append(f"enum: {prop['enum']}")
+        suffix = f" ({', '.join(marks)})" if marks else ""
+        lines.append(f"  {prop_name}{suffix}: {prop.get('description', '')}")
+    examples = schema.get("examples") or []
+    if examples:
+        lines.append("")
+        lines.append("Examples:")
+        for example in examples:
+            lines.append(f"  {json.dumps(example, ensure_ascii=False)}")
     return "\n".join(lines) + "\n"
 
 
@@ -321,6 +364,17 @@ def main(argv: Sequence[str] | None = None) -> None:
             asyncio.run(run_serve(config, endpoint=args.socket))
         except KeyboardInterrupt:
             print("bye")
+        return
+
+    if args.command == "help":
+        text = tool_help_text(args.name)
+        if text is None:
+            print(
+                f"error: unknown tool '{args.name}' (see 'embpilot tools')",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        print(text, end="")
         return
 
     parser.error(f"unknown command: {args.command}")

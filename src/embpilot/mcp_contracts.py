@@ -78,12 +78,62 @@ def _object_schema(
     return schema
 
 
-def _tool(name: str, description: str, schema: dict[str, Any]) -> Tool:
+def _tool(
+    name: str,
+    description: str,
+    schema: dict[str, Any],
+    *,
+    when_to_use: str | None = None,
+    avoid_when: str | None = None,
+    typical_flow: str | None = None,
+    pitfalls: str | None = None,
+) -> Tool:
+    """Build one tool whose description guides agent tool selection.
+
+    Every description is prefixed with the JSON-object note, then carries the
+    one-line purpose plus optional structured guidance rendered as distinct
+    sections so agents can pick tools and arguments reliably.
+    """
+    parts = [_JSON_OBJECT_NOTE + description]
+    if when_to_use:
+        parts.append(f"When to use: {when_to_use}")
+    if avoid_when:
+        parts.append(f"Avoid when: {avoid_when}")
+    if typical_flow:
+        parts.append(f"Typical flow: {typical_flow}")
+    if pitfalls:
+        parts.append(f"Pitfalls: {pitfalls}")
     return Tool(
         name=name,
-        description=_JSON_OBJECT_NOTE + description,
+        description="\n".join(parts),
         inputSchema=schema,
         outputSchema=_RESULT_SCHEMA,
+    )
+
+
+def _connection_failure_suggestion(exc: Exception) -> str:
+    """Pick a recovery hint from the failure category."""
+    text = str(exc).lower()
+    if isinstance(exc, TimeoutError) or "timed out" in text or "timeout" in text:
+        return (
+            "Connection timed out. Check the address, network path, and "
+            "firewall; for serial, verify the baudrate matches the device."
+        )
+    if isinstance(exc, PermissionError) or any(
+        word in text for word in ("authentication", "permission denied", "host key")
+    ):
+        return (
+            "Authentication or authorization failed. Check credentials, "
+            "key-file permissions, and host-key verification settings."
+        )
+    if isinstance(exc, ConnectionRefusedError) or "refused" in text:
+        return (
+            "Connection refused. Confirm the service is listening on that "
+            "port; for serial, check the port is not occupied by another "
+            "program."
+        )
+    return (
+        "Check the device address, credentials, and availability, then retry."
     )
 
 
@@ -119,6 +169,16 @@ def build_tool_definitions() -> list[Tool]:
                     {"port": "/dev/ttyUSB0", "baudrate": 115200, "line_ending": "lf"},
                 ],
             ),
+            when_to_use="The device has a UART port exposed on this host; pick the "
+            "right line_ending for the console (interactive shells usually want "
+            "crlf, bare kernel consoles usually lf).",
+            avoid_when="The target is reachable over the network; prefer connect_ssh "
+            "or connect_telnet instead.",
+            typical_flow="connect_serial -> send_command (or read_output) -> "
+            "disconnect_device.",
+            pitfalls="The port must be free: a terminal emulator already holding "
+            "COM3 will make the connection fail. Wrong baudrate produces garbage "
+            "or no output.",
         ),
         _tool(
             "connect_ssh",
@@ -149,6 +209,14 @@ def build_tool_definitions() -> list[Tool]:
                     }
                 ],
             ),
+            when_to_use="The target runs an SSH server; prefer a key_file over a "
+            "password and keep host-key verification enabled.",
+            avoid_when="The device only exposes a plain console; use connect_serial "
+            "or connect_telnet.",
+            typical_flow="connect_ssh -> send_command -> disconnect_device.",
+            pitfalls="A password or private key that needs a passphrase may require "
+            "interaction; verify the key-file permissions and the known_hosts "
+            "entry before retrying.",
         ),
         _tool(
             "connect_telnet",
@@ -164,11 +232,19 @@ def build_tool_definitions() -> list[Tool]:
                 required=["host"],
                 examples=[{"host": "192.168.1.20", "port": 23}],
             ),
+            when_to_use="The target exposes a Telnet console and has no SSH server.",
+            avoid_when="Credentials or sensitive data are involved; Telnet is "
+            "unencrypted, prefer SSH.",
+            typical_flow="connect_telnet -> send_command -> disconnect_device.",
+            pitfalls="Many boards only accept Telnet from a few source addresses; "
+            "check access lists if the connection is refused.",
         ),
         _tool(
             "disconnect_device",
             "Close the active device connection and finalize its session.",
             _object_schema({}),
+            when_to_use="Always at the end of a debugging task, before abandoning a "
+            "session, or before connecting to a different device.",
         ),
         _tool(
             "send_command",
@@ -200,6 +276,14 @@ def build_tool_definitions() -> list[Tool]:
                     }
                 ],
             ),
+            when_to_use="You need to run one command and see its output.",
+            avoid_when="The device emits logs on its own (boot messages, periodic "
+            "status); use read_output so nothing is sent.",
+            typical_flow="Set expect_regex to a completion marker (prompt or 'OK') and "
+            "a bounded timeout_ms; if the marker appears the call returns early.",
+            pitfalls="Streaming output with no completion marker keeps capturing "
+            "until timeout_ms; prefer expect_regex, or read_output for passive "
+            "observation.",
         ),
         _tool(
             "reset_target",
@@ -207,6 +291,9 @@ def build_tool_definitions() -> list[Tool]:
             _object_schema(
                 {"method": {"type": "string", "enum": ["reboot"], "default": "reboot"}}
             ),
+            when_to_use="Recovering a hung target or capturing a clean boot sequence.",
+            pitfalls="reboot is a software reset: it interrupts any command currently "
+            "running on the device and restarts the boot flow.",
         ),
         _tool(
             "read_output",
@@ -235,6 +322,14 @@ def build_tool_definitions() -> list[Tool]:
                 },
                 examples=[{"duration_ms": 1000, "expect_regex": "Login:"}],
             ),
+            when_to_use="Watching the device without interacting: boot logs, "
+            "heartbeat/status lines, or waiting for a marker.",
+            avoid_when="You must run a command; use send_command instead.",
+            typical_flow="Call right after reset_target or connect to capture what "
+            "the device prints next; set expect_regex to return early on a "
+            "completion marker.",
+            pitfalls="Only output produced after the call starts is collected; "
+            "earlier ring-buffer lines are not replayed.",
         ),
         _tool(
             "search_history_logs",
@@ -247,8 +342,18 @@ def build_tool_definitions() -> list[Tool]:
                 },
                 required=["keyword"],
             ),
+            when_to_use="Finding when an error or pattern appeared in the current "
+            "session's captured logs.",
+            avoid_when="The session is closed; export_session it and search the "
+            "database locally instead (searching closed sessions is planned).",
         ),
-        _tool("list_sessions", "List historical debug sessions.", _object_schema({})),
+        _tool(
+            "list_sessions",
+            "List historical debug sessions.",
+            _object_schema({}),
+            when_to_use="Before exporting or reviewing past work; sessions are "
+            "persisted in SQLite after disconnects.",
+        ),
         _tool(
             "delete_session",
             "Permanently delete a closed historical session.",
@@ -256,6 +361,8 @@ def build_tool_definitions() -> list[Tool]:
                 {"session_id": {"type": "string", "minLength": 1}},
                 required=["session_id"],
             ),
+            when_to_use="Cleaning up sessions that are no longer needed; this cannot "
+            "be undone.",
         ),
         _tool(
             "export_session",
@@ -267,6 +374,8 @@ def build_tool_definitions() -> list[Tool]:
                 },
                 required=["session_id", "target_path"],
             ),
+            when_to_use="Handing a session over to external tooling (SQLite queries, "
+            "backup, or sharing).",
         ),
     ]
 
@@ -339,7 +448,7 @@ async def _dispatch_tool(
                 "CONNECTION_FAILED",
                 str(exc),
                 retryable=True,
-                suggestion="Check the device address, credentials, and availability, then retry.",
+                suggestion=_connection_failure_suggestion(exc),
             )
         return _success(
             f"Connected over {interface}. Session ID: {session_id}",
@@ -347,7 +456,13 @@ async def _dispatch_tool(
         )
     if name == "send_command":
         result = await manager.send_command(**arguments)
-        return _success(result.output, result.as_dict())
+        message = result.output
+        if result.timed_out and not arguments.get("expect_regex"):
+            message += (
+                "\n(hint: the command timed out; if it has a completion marker, "
+                "pass expect_regex, or increase timeout_ms)"
+            )
+        return _success(message, result.as_dict())
     if name == "read_output":
         result = await manager.read_output(**arguments)
         return _success(result.output, result.as_dict())

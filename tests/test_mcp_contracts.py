@@ -95,6 +95,62 @@ async def test_read_output_without_active_device_is_machine_readable() -> None:
     assert result.structuredContent["error"]["code"] == "NO_ACTIVE_DEVICE"
 
 
+def test_tool_descriptions_carry_structured_guidance() -> None:
+    tools = {tool.name: tool for tool in build_tool_definitions()}
+
+    serial = tools["connect_serial"].description
+    assert "When to use:" in serial
+    assert "Avoid when:" in serial
+    assert "Typical flow:" in serial
+    assert "Pitfalls:" in serial
+
+    send = tools["send_command"].description
+    assert "Avoid when:" in send
+    assert "Pitfalls:" in send
+    assert "read_output" in send  # cross-references the passive alternative
+
+    read = tools["read_output"].description
+    assert "Pitfalls:" in read
+    assert "after the call starts" in read
+
+    disconnect = tools["disconnect_device"].description
+    assert "When to use:" in disconnect
+
+
+class RefusedManager:
+    async def connect_device(self, interface: str, config: dict) -> str:
+        raise ConnectionRefusedError("connection refused by host")
+
+
+class TimeoutManager:
+    async def connect_device(self, interface: str, config: dict) -> str:
+        raise TimeoutError("connect timed out")
+
+
+class AuthManager:
+    async def connect_device(self, interface: str, config: dict) -> str:
+        raise PermissionError("authentication failed")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("manager", "expected_hint"),
+    [
+        (RefusedManager(), "Connection refused"),
+        (TimeoutManager(), "timed out"),
+        (AuthManager(), "Authentication"),
+    ],
+)
+async def test_connection_failure_suggestion_is_specific(
+    manager, expected_hint
+) -> None:
+    result = await dispatch_tool(manager, "connect_serial", {"port": "COM9"})
+
+    assert result.isError is True
+    assert result.structuredContent["error"]["code"] == "CONNECTION_FAILED"
+    assert expected_hint in result.structuredContent["error"]["suggestion"]
+
+
 class RecordingManager:
     def __init__(self) -> None:
         self.connection: tuple[str, dict] | None = None

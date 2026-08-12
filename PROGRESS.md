@@ -1,5 +1,26 @@
 # Progress
 
+## 2026-08-12 — M3: prompts, guidance, and CLI help (implemented)
+
+### Done
+- Prompt catalog 2 -> 7: connect_and_explore, capture_boot_log,
+  diagnose_connection, design_expect, session_handoff; each renders an
+  actionable tool sequence (reset_target -> read_output, etc.). Extracted
+  into module-level `build_prompts()` / `render_prompt()` (mirrors
+  `build_tool_definitions`) so the catalog is unit-testable.
+- Tool descriptions carry structured guidance (When to use / Avoid when /
+  Typical flow / Pitfalls) via one `_tool()` helper; every tool covered.
+- CONNECTION_FAILED suggestions classified by failure kind (timeout / auth /
+  refused); send_command timed_out without expect_regex appends a hint to
+  the human-readable text (structured envelope unchanged).
+- `embpilot help <tool>` (schema, defaults, enums, examples, guidance) and
+  example lines in `embpilot tools` output.
+- Full suite: 92 passed, 1 skipped.
+
+### Current status
+- M1-M3 done. Next: M4 (search_history_logs session_id, schema-driven
+  flags, `run`), then optional M5 (monitor --until/--timeout, session_info).
+
 ## 2026-08-12 — M2: serve daemon + --socket forwarding (implemented)
 
 ### Done

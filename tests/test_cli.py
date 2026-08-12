@@ -72,6 +72,32 @@ def test_tools_lists_every_advertised_tool() -> None:
         assert name in completed.stdout
 
 
+def test_tools_output_includes_example_lines() -> None:
+    completed = _run_cli("tools")
+
+    assert completed.returncode == 0, completed.stderr
+    assert "example: {" in completed.stdout
+    assert 'example: {"port": "COM3"' in completed.stdout
+
+
+def test_help_subcommand_shows_schema_and_guidance() -> None:
+    completed = _run_cli("help", "connect_serial")
+
+    assert completed.returncode == 0, completed.stderr
+    assert "When to use:" in completed.stdout
+    assert "Arguments (JSON object):" in completed.stdout
+    assert "port" in completed.stdout
+    assert "required" in completed.stdout
+    assert "Examples:" in completed.stdout
+
+
+def test_help_unknown_tool_exits_2() -> None:
+    completed = _run_cli("help", "bogus_tool")
+
+    assert completed.returncode == 2
+    assert "unknown tool 'bogus_tool'" in completed.stderr
+
+
 def test_one_shot_list_sessions_success(tmp_path: Path) -> None:
     completed = _run_cli("tool", "list_sessions", data_dir=tmp_path)
 
