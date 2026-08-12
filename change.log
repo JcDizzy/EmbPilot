@@ -34,6 +34,14 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- Review round fixes: `--socket` calls against a dead daemon now report
+  "cannot reach daemon" (exit 1) instead of a traceback; `reset_target`
+  respects the session line ending (crlf consoles no longer get a bare 
+);
+  `DbConsumer` keeps a strong reference to its flush tasks (asyncio GC
+  pitfall); `disconnect_device` bounds the background-task wait to 2s and
+  logs stragglers instead of hanging (Windows proactor wait_for/cancel race);
+  dead config fields removed.
 - Interactive installer cancellations: every prompt accepts `q`/`quit`/
   `cancel`/`esc`/`exit`, Ctrl+C and EOF (Ctrl+D / closed pipe) cancel the
   flow cleanly - nothing is written and the CLI reports "cancelled" (exit

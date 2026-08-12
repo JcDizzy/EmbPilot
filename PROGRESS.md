@@ -313,3 +313,20 @@
 
 ### Next good step
 - Choose an execution mode for the runtime rearchitecture plan and start Task 1.
+
+## 2026-08-12 - full review round
+
+### Done
+- Full code review across all modules (coverage 70% overall; core logic
+  85-93%; cli.py/__main__.py 0% is a subprocess-measurement artifact).
+- Fixed (commit ff80f34): dead-daemon --socket calls traced back (now exit 1
+  with a clear message); reset_target hardcoded \n (now uses session line
+  ending); DbConsumer flush tasks had no strong reference (asyncio GC
+  pitfall); disconnect_device could hang forever on the Windows proactor
+  (wait_for/cancel/feed_data race) - now bounded to 2s with a warning;
+  removed unused config fields.
+- Docs synced: acceptance checklist in the design spec fully checked, status
+  marked implemented; change.log updated.
+- Full suite: 141 passed, 1 skipped.
+- Remaining: WSL/Linux full run to exercise the unix-socket path; pytest-cov
+  installed locally for coverage reporting.

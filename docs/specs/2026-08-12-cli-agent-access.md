@@ -1,6 +1,6 @@
 # CLI Agent 化改造计划（面向不支持 MCP 的 Agent）
 
-> 状态：待 review，未实现。
+> 状态：**已实现（M1-M4 + 收尾，2026-08-12）**。RAG 相关项 deferred。
 > 动机：pi 等编码 agent 不内置 MCP 客户端（pi 文档明确 "no built-in MCP"），只能通过 bash 调用 CLI。
 > 本文档整理全部合理且需要的改动项，按优先级分组；每项给出动机（含实测证据）、接口契约、影响范围、测试与成本。
 
@@ -388,13 +388,13 @@ prompt 文本直接给出可执行的工具序列与参数示例：
 
 ## 13. 验收清单
 
-- [ ] `embpilot batch` 一次调用完成 connect → 多命令 → disconnect，输出逐行 JSON。
-- [ ] `read_output` 不发送字节即可捕获设备日志，expect 提前返回、超时截断正确。
-- [ ] `serve` 跨多次客户端调用保持连接；多连接排队不串扰；断连后可重连。
-- [ ] `--socket` 转发与无 socket 行为完全等价（同一契约层）。
-- [ ] 断开后可 `search_history_logs --json '{"session_id":"..."}'` 搜索历史会话。
-- [ ] 5 个新 prompts 可获取，文本含可执行工具序列。
-- [ ] 所有工具 description 含 When to use / Pitfalls；suggestion 按错误码细分。
-- [ ] 全工具 schema → flags 往返经 jsonschema 校验一致。
-- [ ] `run` 生成的请求序列与 batch 等价。
-- [ ] 全量 `python -m pytest -q` 绿；无活体目标依赖（全部 mock/fake）。
+- [x] `embpilot batch` 一次调用完成 connect → 多命令 → disconnect，输出逐行 JSON。
+- [x] `read_output` 不发送字节即可捕获设备日志，expect 提前返回、超时截断正确。
+- [x] `serve` 跨多次客户端调用保持连接；多连接排队不串扰；断连后可重连。
+- [x] `--socket` 转发与无 socket 行为完全等价（同一契约层）。
+- [x] 断开后可 `search_history_logs --json '{"session_id":"..."}'` 搜索历史会话。
+- [x] 5 个新 prompts 可获取，文本含可执行工具序列。
+- [x] 所有工具 description 含 When to use / Pitfalls；suggestion 按错误码细分。
+- [x] 全工具 schema → flags 往返经 jsonschema 校验一致。
+- [x] `run` 生成的请求序列与 batch 等价。
+- [x] 全量 `python -m pytest -q` 绿；无活体目标依赖（全部 mock/fake）。
