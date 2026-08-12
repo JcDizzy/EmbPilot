@@ -11,15 +11,116 @@ device-debugging skill. Uninstall removes only what install wrote.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from embpilot.installer.targets import (
     ALL_TARGETS,
     AgentTarget,
     DetectionResult,
+    FileChange,
     Location,
+    detect_all,
     get_target,
     resolve_target_flag,
 )
+
+
+def run_interactive_install(
+    *,
+    read_line: Callable[[str], str] | None = None,
+) -> list[str]:
+    """Detect harnesses, let the user pick targets/scope, then install."""
+    from embpilot.installer.prompts import (
+        confirm_changes,
+        make_input_reader,
+        select_location,
+        select_targets,
+    )
+
+    if read_line is None:
+        import sys
+
+        read_line = make_input_reader(sys.stdin)
+    loc: Location = "local"
+    targets = select_targets(detect_all(loc), read_line=read_line, action="install")
+    if not targets:
+        return ["no targets selected — nothing to do"]
+    loc = select_location(targets, read_line=read_line)
+
+    # Preview the file list WITHOUT writing anything; confirm first.
+    preview: list[FileChange] = []
+    for target in targets:
+        if not target.supports_location(loc):
+            preview.append(
+                FileChange(Path("."), "kept", note=f"{target.id} unsupported at {loc}, skipped")
+            )
+            continue
+        for path_str in target.describe_paths(loc):
+            preview.append(FileChange(Path(path_str), "pending"))
+    if not confirm_changes(preview, read_line=read_line, action="install"):
+        return ["cancelled — nothing written"]
+
+    changes: list[FileChange] = []
+    skipped: list[str] = []
+    for target in targets:
+        if not target.supports_location(loc):
+            skipped.append(target.id)
+            continue
+        changes.extend(target.install(loc))
+    lines = [f"installed into {len(targets)} target(s) at {loc} scope:"]
+    for target_id in skipped:
+        lines.append(f"  - {target_id}: unsupported at {loc}, skipped")
+    lines.extend(f"  - {change}" for change in changes)
+    return lines
+
+
+def run_interactive_uninstall(
+    *,
+    read_line: Callable[[str], str] | None = None,
+) -> list[str]:
+    """Detect harnesses, let the user pick targets/scope, then uninstall."""
+    from embpilot.installer.prompts import (
+        confirm_changes,
+        make_input_reader,
+        select_location,
+        select_targets,
+    )
+
+    if read_line is None:
+        import sys
+
+        read_line = make_input_reader(sys.stdin)
+    loc: Location = "local"
+    targets = select_targets(detect_all(loc), read_line=read_line, action="uninstall")
+    if not targets:
+        return ["no targets selected — nothing to do"]
+    loc = select_location(targets, read_line=read_line)
+
+    # Preview the file list WITHOUT writing anything; confirm first.
+    preview: list[FileChange] = []
+    for target in targets:
+        if not target.supports_location(loc):
+            preview.append(
+                FileChange(Path("."), "kept", note=f"{target.id} unsupported at {loc}, skipped")
+            )
+            continue
+        for path_str in target.describe_paths(loc):
+            preview.append(FileChange(Path(path_str), "pending"))
+    if not confirm_changes(preview, read_line=read_line, action="uninstall"):
+        return ["cancelled — nothing written"]
+
+    changes: list[FileChange] = []
+    skipped: list[str] = []
+    for target in targets:
+        if not target.supports_location(loc):
+            skipped.append(target.id)
+            continue
+        changes.extend(target.uninstall(loc))
+    lines = [f"removed EmbPilot from {len(targets)} target(s) at {loc} scope:"]
+    for target_id in skipped:
+        lines.append(f"  - {target_id}: unsupported at {loc}, skipped")
+    lines.extend(f"  - {change}" for change in changes)
+    return lines
 
 
 def run_install(

@@ -34,6 +34,13 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- Interactive installer mode: `embpilot install` / `uninstall` with no
+  `--target` runs a CodeGraph-style picker (zero-dependency, stdlib input):
+  detected harnesses are listed pre-checked, targets are selected by number,
+  scope is chosen with per-target support hints, and the exact file list is
+  previewed for confirmation BEFORE anything is written (cancelling writes
+  nothing). `--yes` skips all prompts for scripting; non-interactive flags
+  (`--target`, `--location`, `--check`, `--print-config`) are unchanged.
 - Installer targets expanded to the mainstream harnesses, each with the
   MCP entry where the harness supports it plus AGENTS.md/CLAUDE.md
   instructions and the skill where applicable:

@@ -85,6 +85,8 @@ def test_remove_marked_section_deletes_empty_file(tmp_path: Path) -> None:
 
 @pytest.fixture
 def project(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -359,3 +361,64 @@ def test_resolve_target_flag_includes_new_targets(project: Path) -> None:
         "pi",
         "agents",
     ]
+
+
+# ── interactive flow ─────────────────────────────────────────────────────────
+
+
+def _scripted_reader(answers: list[str]):
+    iterator = iter(answers)
+
+    def read_line(prompt: str) -> str:
+        print(prompt, end="")  # mirror the interactive reader for capsys
+        try:
+            return next(iterator)
+        except StopIteration:
+            return ""
+
+    return read_line
+
+
+def test_interactive_install_selects_and_confirms(project: Path, capsys) -> None:
+    """Empty selection = detected targets; confirm writes the files."""
+    from embpilot.installer.install import run_interactive_install
+
+    # project has no harness files, so nothing is detected: pick agents by number.
+    lines = run_interactive_install(
+        read_line=_scripted_reader(["6", "", "y"]),
+    )
+    assert "installed into 1 target(s) at local scope" in "\n".join(lines)
+    assert (project / "AGENTS.md").exists()
+    assert "Proceed?" in capsys.readouterr().out
+
+
+def test_interactive_install_cancel_writes_nothing(project: Path, capsys) -> None:
+    from embpilot.installer.install import run_interactive_install
+
+    lines = run_interactive_install(read_line=_scripted_reader(["6", "", "n"]))
+    assert "cancelled" in "\n".join(lines)
+    assert not (project / "AGENTS.md").exists()
+
+
+def test_interactive_uninstall_round_trip(project: Path, capsys) -> None:
+    from embpilot.installer.install import (
+        run_interactive_install,
+        run_interactive_uninstall,
+    )
+
+    run_interactive_install(read_line=_scripted_reader(["6", "", "y"]))
+    assert (project / "AGENTS.md").exists()
+
+    lines = run_interactive_uninstall(read_line=_scripted_reader(["6", "", "y"]))
+    assert "removed EmbPilot from" in "\n".join(lines)
+    assert not (project / "AGENTS.md").exists()
+
+
+def test_interactive_global_only_target_skipped_at_local(project: Path, capsys) -> None:
+    """Selecting codex (global-only) at local scope reports a skip."""
+    from embpilot.installer.install import run_interactive_install
+
+    lines = run_interactive_install(read_line=_scripted_reader(["4", "", "y"]))
+    joined = "\n".join(lines)
+    assert "unsupported at local, skipped" in joined
+    assert not (project / ".codex").exists()

@@ -57,14 +57,20 @@ their CLI equivalents, so an agent whose MCP server fails to start falls back
 to the CLI automatically:
 
 ```bash
-embpilot install                      # auto-detect installed harnesses
+embpilot install                      # interactive: pick targets/scope, confirm files
 embpilot install --target pi          # pi: AGENTS.md instructions + user skill
 embpilot install --target claude      # Claude Code: .mcp.json + CLAUDE.md
 embpilot install --target agents      # project AGENTS.md (Cursor/Codex/Gemini/...)
-embpilot install --target all --location global --check
+embpilot install --target all --location global --yes   # non-interactive, no prompts
+embpilot install --check              # report state, write nothing (exit 0/1)
 embpilot install --print-config claude   # show the manual snippet, write nothing
 embpilot uninstall --target pi        # remove only what install wrote
 ```
+
+With no `--target`, `install`/`uninstall` run interactively: harnesses are
+detected and pre-checked, you pick targets and scope, and nothing is written
+until you confirm the exact file list. `--yes` skips every prompt for
+scripting.
 
 Targets: `claude` (MCP + CLAUDE.md), `zcode` (MCP + skill +
 AGENTS.md), `opencode` (MCP + AGENTS.md), `codex` (TOML MCP +

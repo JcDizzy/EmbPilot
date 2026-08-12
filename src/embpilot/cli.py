@@ -202,14 +202,20 @@ def build_parser() -> argparse.ArgumentParser:
         inst_p = sub.add_parser(sub_name, help=sub_help)
         inst_p.add_argument(
             "--target",
-            default="auto",
-            help=f"Targets: auto (detected), all, none, or comma list [{_target_ids()}]",
+            default=None,
+            help=f"Targets: auto (detected), all, none, or comma list [{_target_ids()}] "
+            "(interactive picker when omitted)",
         )
         inst_p.add_argument(
             "--location",
             choices=["global", "local"],
-            default="local",
+            default=None,
             help="Scope: project files (local) or user files (global); default: local",
+        )
+        inst_p.add_argument(
+            "--yes",
+            action="store_true",
+            help="Non-interactive: use auto-detected targets and local scope without confirmation",
         )
         inst_p.add_argument(
             "--check",
@@ -515,6 +521,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         from embpilot.installer.install import (
             run_check,
             run_install,
+            run_interactive_install,
+            run_interactive_uninstall,
             run_print_config,
             run_uninstall,
         )
@@ -523,23 +531,39 @@ def main(argv: Sequence[str] | None = None) -> None:
             if args.print_config:
                 print(run_print_config(args.print_config))
                 return
+            if args.check:
+                lines, code = run_check(
+                    target=args.target or "auto",
+                    location=args.location or "local",
+                )
+                print("\n".join(lines))
+                raise SystemExit(code)
+            if args.target is None and not args.yes:
+                # Interactive picker (CodeGraph-style) when nothing is pinned.
+                if args.command == "install":
+                    print("\n".join(run_interactive_install()))
+                else:
+                    print("\n".join(run_interactive_uninstall()))
+                return
             if args.command == "install":
-                if args.check:
-                    lines, code = run_check(
-                        target=args.target, location=args.location
+                print(
+                    "\n".join(
+                        run_install(
+                            target=args.target or "auto",
+                            location=args.location or "local",
+                        )
                     )
-                    print("\n".join(lines))
-                    raise SystemExit(code)
-                print("\n".join(run_install(target=args.target, location=args.location)))
+                )
                 return
             if args.command == "uninstall":
-                if args.check:
-                    lines, code = run_check(
-                        target=args.target, location=args.location
+                print(
+                    "\n".join(
+                        run_uninstall(
+                            target=args.target or "auto",
+                            location=args.location or "local",
+                        )
                     )
-                    print("\n".join(lines))
-                    raise SystemExit(code)
-                print("\n".join(run_uninstall(target=args.target, location=args.location)))
+                )
                 return
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)

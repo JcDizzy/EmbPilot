@@ -1,5 +1,22 @@
 # Progress
 
+## 2026-08-12 — interactive installer mode (implemented)
+
+### Done
+- `embpilot install` / `uninstall` with no --target now run a CodeGraph-style
+  interactive flow (`installer/prompts.py`, zero-dependency stdlib input):
+  detected harnesses listed pre-checked, target multi-select by number,
+  scope prompt with per-target support hints, exact file-list preview, and
+  confirmation BEFORE any write — cancelling writes nothing.
+- `--yes` flag added for non-interactive scripting; --target/--location/
+  --check/--print-config unchanged.
+- Fixed a real ordering bug found by tests: the first interactive draft
+  executed install() before confirmation; the flow now previews via
+  describe_paths() (no writes) and executes only after approval.
+- Interactive flow verified end-to-end on a fake home: pick claude+codex,
+  local scope, confirm, files written, codex correctly skipped as global-only.
+- Full suite: 133 passed, 1 skipped.
+
 ## 2026-08-12 — installer targets: zcode/opencode/codex added
 
 ### Done
