@@ -149,7 +149,7 @@ async def run_batch(config: EmbPilotConfig, *, fail_fast: bool = False) -> int:
     Returns the process exit code (0 / 1 / 2, see ``batch_loop``).
     """
     config.ensure_data_dirs()
-    from embpilot.server import SessionManager
+    from embpilot.session_manager import SessionManager
 
     manager = SessionManager(config)
     await manager.start()
@@ -171,7 +171,7 @@ async def run_serve(config: EmbPilotConfig, *, endpoint: str | None = None) -> N
         default_endpoint,
         write_endpoint_file,
     )
-    from embpilot.server import SessionManager
+    from embpilot.session_manager import SessionManager
 
     manager = SessionManager(config)
     server = RpcServer(
@@ -196,7 +196,7 @@ async def run_serve(config: EmbPilotConfig, *, endpoint: str | None = None) -> N
 async def run_shell(config: EmbPilotConfig, *, json_output: bool = False) -> None:
     """Start a persistent SessionManager and run the REPL."""
     config.ensure_data_dirs()
-    from embpilot.server import SessionManager
+    from embpilot.session_manager import SessionManager
 
     manager = SessionManager(config)
     await manager.start()

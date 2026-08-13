@@ -477,7 +477,7 @@ def test_serve_daemon_idempotent_when_already_running(tmp_path: Path) -> None:
         assert "already running" in second.stdout
 
         # The first daemon must still be alive and reachable.
-        from embpilot.cli import _pid_alive
+        from embpilot.cli_daemon import _pid_alive
 
         assert _pid_alive(pid), "idempotent re-run killed the running daemon"
         call = _run_cli(
@@ -509,7 +509,7 @@ def test_pid_alive_is_probe_only_on_windows() -> None:
     """The Windows pid probe must never kill the target process."""
     import subprocess
 
-    from embpilot.cli import _pid_alive
+    from embpilot.cli_daemon import _pid_alive
 
     if sys.platform != "win32":
         return  # POSIX os.kill(pid, 0) is already a pure probe

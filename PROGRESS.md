@@ -379,3 +379,17 @@
 - Tests: idempotence test now asserts the first daemon stays alive and
   reachable; new probe-only unit test proves _pid_alive does not kill.
 - Full suite: 147 passed, 1 skipped (stable across 3 runs).
+
+## 2026-08-12 - maintainability review round
+
+### Done
+- Split cli.py (816 -> 645 lines) into cli.py + cli_daemon.py (212 lines):
+  detached-daemon lifecycle, side-effect-free pid probes, endpoint
+  validation/reachability now live in a dedicated, independently testable
+  module.
+- Split server.py (776 -> 351 lines) into session_manager.py (450 lines,
+  business layer: DeviceSession/SessionManager/pipeline/persistence, no MCP
+  knowledge) + server.py (MCP adapter + resource/prompt catalogs). server.py
+  re-exports SessionManager/DeviceSession so old imports keep working.
+- `embpilot help` (no arg) lists the tools instead of erroring.
+- Full suite: 147 passed, 1 skipped.

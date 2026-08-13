@@ -34,6 +34,14 @@
   append a hint when no `expect_regex` was given.
 - CLI guidance: `embpilot help <tool>` shows the schema, defaults, enums,
   examples, and guidance; `embpilot tools` now prints one example per tool.
+- Maintainability: split cli.py into cli.py (parser/tool dispatch, 645
+  lines) + cli_daemon.py (detached daemon lifecycle, pid probing, endpoint
+  validation/reachability); split server.py into session_manager.py
+  (business layer: connections, pipeline, persistence) + server.py (MCP
+  adapter + resource/prompt catalogs, 351 lines) with backward-compatible
+  re-exports.
+- `embpilot help` with no argument now lists the available tools instead of
+  failing with an argparse error.
 - `serve --daemon` prints the real interpreter pid from daemon.pid instead
   of the Popen stub pid (Anaconda venv redirector), so users manage the
   correct process; regression-tested.
