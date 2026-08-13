@@ -393,3 +393,15 @@
   re-exports SessionManager/DeviceSession so old imports keep working.
 - `embpilot help` (no arg) lists the tools instead of erroring.
 - Full suite: 147 passed, 1 skipped.
+
+## 2026-08-13 - release 0.3.0 (line A takes over)
+
+### Done
+- Inherited from the 0.2.x line: export_operation_history tool (audit
+  export, session filter, limit/offset) and embpilot doctor (runtime
+  diagnostics). 12 tools total.
+- Line decision: local line becomes the canonical main (force-push); the
+  previous published line is preserved as archive/remote-0.2.1 branch.
+- Released v0.3.0: GitHub release created, PyPI upload (twine, token from
+  pypi.txt), fresh-venv smoke test passed (install -> version -> doctor ->
+  help -> tool calls).
