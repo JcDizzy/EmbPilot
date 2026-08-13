@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "embpilot"
-version = "0.1.0"
+version = "0.3.0"
 description = "MCP server for embedded device debugging — connect, control, and debug hardware via Serial/Telnet/SSH through LLM agents"
 readme = "README.md"
 license = { text = "MIT" }

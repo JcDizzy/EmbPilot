@@ -528,3 +528,13 @@ def test_pid_alive_is_probe_only_on_windows() -> None:
     finally:
         _kill_pid(proc.pid)
         proc.wait(timeout=10)
+
+
+def test_doctor_reports_environment() -> None:
+    completed = _run_cli("doctor")
+
+    assert completed.returncode == 0, completed.stderr
+    assert "embpilot" in completed.stdout
+    assert "core dependencies" in completed.stdout
+    assert "[OK] mcp" in completed.stdout
+    assert "serial ports" in completed.stdout

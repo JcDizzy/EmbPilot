@@ -108,3 +108,33 @@ async def test_schema_loading():
     assert "CREATE TABLE IF NOT EXISTS sessions" in _schema_main
     assert "CREATE TABLE IF NOT EXISTS operation_history" in _schema_main
     assert "CREATE TABLE IF NOT EXISTS device_logs" in _schema_session
+
+
+@pytest.mark.asyncio
+async def test_export_operation_history_round_trip(tmp_path: Path) -> None:
+    from embpilot.core.database import MainDatabase
+
+    db = MainDatabase(tmp_path / "main.db")
+    await db.open()
+    try:
+        await db.insert_operation(
+            actor="AI", action_type="call_tool",
+            detail={"tool": "send_command", "command_sha256": "abc", "command_length": 2},
+            session_id="s1",
+        )
+        await db.insert_operation(
+            actor="Human", action_type="connect", detail={}, session_id="s2"
+        )
+
+        all_rows = await db.export_operation_history()
+        assert len(all_rows) == 2
+        assert all_rows[0]["action_type"] == "connect"  # newest first
+
+        filtered = await db.export_operation_history(session_id="s1")
+        assert len(filtered) == 1
+        assert filtered[0]["actor"] == "AI"
+        assert filtered[0]["detail"]["tool"] == "send_command"
+        # detail must round-trip as an object, not a string.
+        assert isinstance(filtered[0]["detail"], dict)
+    finally:
+        await db.close()

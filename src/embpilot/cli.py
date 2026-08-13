@@ -202,6 +202,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Tool name, e.g. connect_serial (omitted: list available tools)",
     )
 
+    sub.add_parser(
+        "doctor",
+        help="Diagnose the runtime environment (deps, drivers, storage)",
+    )
+
     run_p = sub.add_parser(
         "run",
         help="Connect, run several commands, and disconnect in one invocation",
@@ -579,6 +584,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise SystemExit(2)
         print(text, end="")
         return
+
+    if args.command == "doctor":
+        from embpilot.doctor import run_doctor
+
+        raise SystemExit(run_doctor())
 
     if args.command == "run":
         raise SystemExit(_run_command_sequence(args, config))

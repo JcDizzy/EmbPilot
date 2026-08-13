@@ -153,6 +153,39 @@ class MainDatabase:
         )
         await self._conn.commit()
 
+    async def export_operation_history(
+        self,
+        session_id: Optional[str] = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Read the operation audit trail (newest first), optionally filtered
+        by session. Details are already redacted at insert time."""
+        if self._conn is None:
+            return []
+        query = (
+            "SELECT timestamp, session_id, actor, action_type, detail "
+            "FROM operation_history"
+        )
+        params: list[Any] = []
+        if session_id is not None:
+            query += " WHERE session_id = ?"
+            params.append(session_id)
+        query += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        cursor = await self._conn.execute(query, params)
+        rows = await cursor.fetchall()
+        return [
+            {
+                "timestamp": row["timestamp"],
+                "session_id": row["session_id"],
+                "actor": row["actor"],
+                "action_type": row["action_type"],
+                "detail": json.loads(row["detail"] or "{}"),
+            }
+            for row in rows
+        ]
+
     # ── Cleanup ──────────────────────────────────────────────────────
 
     async def cleanup_expired_sessions(

@@ -398,6 +398,30 @@ def build_tool_definitions() -> list[Tool]:
             "it) or a .db file path; a running session must be disconnected "
             "before its data is fully checkpointed.",
         ),
+        _tool(
+            "export_operation_history",
+            "Export the redacted operation audit trail as JSON, optionally "
+            "filtered by session.",
+            _object_schema(
+                {
+                    "session_id": {"type": "string", "minLength": 1},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
+                        "default": 200,
+                    },
+                    "offset": {"type": "integer", "minimum": 0, "default": 0},
+                },
+                examples=[{"limit": 200}],
+            ),
+            when_to_use="Reviewing what actions (connect/send_command/reset) "
+            "happened in a session, for audit or handoff; details are "
+            "redacted (no command plaintext, no passwords).",
+            pitfalls="Records are appended asynchronously; the most recent "
+            "operations may not be visible until the caller's operation "
+            "completes.",
+        ),
     ]
 
 
@@ -419,6 +443,10 @@ class SessionOperations(Protocol):
     async def delete_session(self, session_id: str) -> None: ...
 
     async def export_session(self, session_id: str, target_path: Path) -> Path: ...
+
+    async def export_operation_history(
+        self, **arguments: Any
+    ) -> list[dict[str, Any]]: ...
 
 
 def _success(message: str, data: dict[str, Any]) -> CallToolResult:
@@ -521,6 +549,12 @@ async def _dispatch_tool(
         return _success(
             f"Exported to: {destination}",
             {"session_id": session_id, "path": str(destination)},
+        )
+    if name == "export_operation_history":
+        rows = await manager.export_operation_history(**arguments)
+        return _success(
+            f"Exported {len(rows)} operation record(s).",
+            {"results": rows},
         )
     return _failure(
         "UNKNOWN_TOOL",

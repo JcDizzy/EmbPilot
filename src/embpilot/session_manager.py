@@ -380,6 +380,19 @@ class SessionManager:
     async def delete_session(self, session_id: str) -> None:
         await self._main_db.delete_session(session_id)
 
+    async def export_operation_history(
+        self,
+        session_id: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Export the redacted operation audit trail (newest first)."""
+        return await self._main_db.export_operation_history(
+            session_id=session_id,
+            limit=limit,
+            offset=offset,
+        )
+
     async def export_session(self, session_id: str, target_path: Path) -> Path:
         sessions = await self._main_db.list_sessions()
         match = [s for s in sessions if s["session_id"] == session_id]
