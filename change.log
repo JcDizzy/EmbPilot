@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-08-12)
 
 ### Added
 - `device://session_info` resource: current session metadata (session_id,
