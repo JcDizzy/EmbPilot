@@ -87,6 +87,9 @@ def test_remove_marked_section_deletes_empty_file(tmp_path: Path) -> None:
 def project(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("HOME", str(tmp_path))
+    # The harness environment may export DSH_HOME; tests must never resolve
+    # the real user home.
+    monkeypatch.delenv("DSH_HOME", raising=False)
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -211,6 +214,7 @@ def test_resolve_target_flag_all_and_unknown(project: Path) -> None:
         "codex",
         "pi",
         "agents",
+        "dsh",
     ]
     assert resolve_target_flag("none", "local") == []
     with pytest.raises(ValueError):
@@ -224,6 +228,7 @@ def test_registry_has_expected_targets() -> None:
     assert get_target("zcode") is not None
     assert get_target("opencode") is not None
     assert get_target("codex") is not None
+    assert get_target("dsh") is not None
     assert get_target("bogus") is None
 
 
@@ -234,6 +239,9 @@ def test_registry_has_expected_targets() -> None:
 def fake_home(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setenv("HOME", str(tmp_path))
+    # The harness environment may export DSH_HOME; tests must never resolve
+    # the real user home.
+    monkeypatch.delenv("DSH_HOME", raising=False)
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -360,7 +368,108 @@ def test_resolve_target_flag_includes_new_targets(project: Path) -> None:
         "codex",
         "pi",
         "agents",
+        "dsh",
     ]
+
+
+# ── dsh target ──────────────────────────────────────────────────────────────
+
+
+def test_dsh_global_install_writes_patch_instructions_and_skill(
+    fake_home: Path,
+) -> None:
+    from embpilot.installer.targets import DshTarget
+
+    DshTarget().install("global")
+    patch = fake_home / ".dsh" / "cordis.patch.yml"
+    assert patch.exists()
+    content = patch.read_text(encoding="utf-8")
+    assert "# EMBPILOT_START" in content
+    assert "@deepseek-ai/dsh-mcp-client" in content
+    assert "serverName: embpilot" in content
+    assert "mcp-embpilot" in content
+    assert "command: embpilot" in content
+    skill = fake_home / ".dsh" / "skills" / "embpilot-device-debugging" / "SKILL.md"
+    assert skill.exists()
+    assert SECTION_START in (fake_home / ".dsh" / "AGENTS.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_dsh_global_install_preserves_sibling_patches(fake_home: Path) -> None:
+    """The patch layer may already hold user patches; only the fenced block
+    is replaced, and uninstall removes only that block."""
+    from embpilot.installer.targets import DshTarget
+
+    patch = fake_home / ".dsh" / "cordis.patch.yml"
+    patch.parent.mkdir(parents=True)
+    patch.write_text(
+        "- id: webserver\n  config:\n    port: 3080\n", encoding="utf-8"
+    )
+
+    DshTarget().install("global")
+    content = patch.read_text(encoding="utf-8")
+    assert "port: 3080" in content
+    assert "mcp-embpilot" in content
+
+    DshTarget().uninstall("global")
+    content = patch.read_text(encoding="utf-8")
+    assert "port: 3080" in content
+    assert "mcp-embpilot" not in content
+    assert "# EMBPILOT_START" not in content
+    assert patch.exists()  # sibling patches keep the file alive
+
+
+def test_dsh_global_uninstall_removes_everything(fake_home: Path) -> None:
+    from embpilot.installer.targets import DshTarget
+
+    DshTarget().install("global")
+    DshTarget().uninstall("global")
+    assert not (fake_home / ".dsh" / "cordis.patch.yml").exists()
+    assert not (
+        fake_home / ".dsh" / "skills" / "embpilot-device-debugging"
+    ).exists()
+    assert not (fake_home / ".dsh" / "AGENTS.md").exists()
+
+
+def test_dsh_local_install_writes_project_agents_and_dsh_skills(
+    project: Path,
+) -> None:
+    from embpilot.installer.targets import DshTarget
+
+    DshTarget().install("local")
+    assert SECTION_START in (project / "AGENTS.md").read_text(encoding="utf-8")
+    skill = project / ".dsh" / "skills" / "embpilot-device-debugging" / "SKILL.md"
+    assert skill.exists()
+    # dsh has no project-level MCP config: local scope never writes a patch.
+    assert not (project / ".dsh" / "cordis.patch.yml").exists()
+
+    DshTarget().uninstall("local")
+    assert not (project / ".dsh" / "skills" / "embpilot-device-debugging").exists()
+    assert not (project / "AGENTS.md").exists()
+
+
+def test_dsh_honors_dsh_home_env(project: Path, monkeypatch) -> None:
+    from embpilot.installer.targets import DshTarget
+
+    dsh_home = project / "custom-dsh-home"
+    monkeypatch.setenv("DSH_HOME", str(dsh_home))
+    DshTarget().install("global")
+    assert (dsh_home / "cordis.patch.yml").exists()
+    assert (dsh_home / "AGENTS.md").exists()
+    assert (dsh_home / "skills" / "embpilot-device-debugging").exists()
+
+
+def test_dsh_instructions_block_mentions_mcp_prefix() -> None:
+    """The dsh-tailored block keeps the fence and names mcp__embpilot__."""
+    from embpilot.installer.targets import DSH_INSTRUCTIONS_BLOCK
+
+    assert SECTION_START in DSH_INSTRUCTIONS_BLOCK
+    assert SECTION_END in DSH_INSTRUCTIONS_BLOCK
+    assert "mcp__embpilot__" in DSH_INSTRUCTIONS_BLOCK
+    assert "tools and explain why." in DSH_INSTRUCTIONS_BLOCK
+    # The note must end on its own line before the closing marker.
+    assert "raw MCP names.\n" + SECTION_END in DSH_INSTRUCTIONS_BLOCK
 
 
 # ── interactive flow ─────────────────────────────────────────────────────────

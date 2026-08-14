@@ -1,5 +1,38 @@
 # Progress
 
+## 2026-08-13 - dsh (DeepSeek Harness) install target (implemented)
+
+### Done
+- Researched the DeepSeek Harness config model from the
+  deepseek-ai/deepseek-harness repo (master): dsh mounts MCP servers only
+  through Cordis patch layers — `$DSH_HOME/cordis.patch.yml` applies to
+  every profile, `$DSH_HOME/profiles/<name>/cordis.patch.yml` per profile —
+  via the @deepseek-ai/dsh-mcp-client bridge (tools surface as
+  `mcp__<server>__<tool>`); workspace instructions load
+  `$DSH_HOME/AGENTS.md` (user-global) plus project AGENTS.md/CLAUDE.md from
+  the project root down to the session cwd; skills are discovered from
+  `.dsh/skills` (rank 100), `.agents/skills` (200), `$DSH_HOME/skills`
+  (400).
+- New `dsh` target (registry: claude, zcode, opencode, codex, pi, agents,
+  dsh): global = marker-fenced `insert` patch into `$DSH_HOME/cordis.patch.yml`
+  (unrelated user patches preserved; uninstall removes only the fence) +
+  instructions into `$DSH_HOME/AGENTS.md` + skill into `$DSH_HOME/skills/`;
+  local = project AGENTS.md + `.dsh/skills/` (dsh has no project-level MCP
+  config). `$DSH_HOME` env var honored.
+- `build_instructions_block(extra)` appends a per-target note inside the
+  instructions fence without duplicating the block; the dsh block names the
+  `mcp__embpilot__` prefix.
+- Pitfall: the harness environment exports `DSH_HOME`, so installer tests
+  that do not delete it resolve the REAL user home — the first test run
+  actually installed into `C:\Users\xhh\.dsh` (AGENTS.md block +
+  cordis.patch.yml + skill). Both test fixtures now
+  `monkeypatch.delenv("DSH_HOME")`. After fixing the note newline
+  placement, re-ran `embpilot install --target dsh --location global` to
+  heal the real home (idempotent: unchanged/updated/unchanged).
+
+### Current status
+- Installer covers claude/zcode/opencode/codex/pi/agents/dsh.
+
 ## 2026-08-12 - interactive installer cancellations (implemented)
 
 ### Done

@@ -1,10 +1,11 @@
 """
 Installer orchestrator: ``embpilot install`` / ``uninstall`` / ``--check`` /
-``--print-config`` across the agent targets (claude, pi, agents).
+``--print-config`` across the agent targets (claude, zcode, opencode, codex,
+pi, agents, dsh).
 
 Modeled on CodeGraph's installer: marker-fenced instructions blocks are
 upserted into each harness's CLAUDE.md / AGENTS.md, MCP entries are merged
-into the harness config, and the pi target additionally installs the
+into the harness config, and the pi/dsh targets additionally install the
 device-debugging skill. Uninstall removes only what install wrote.
 """
 

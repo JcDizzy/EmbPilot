@@ -16,7 +16,18 @@ from __future__ import annotations
 SECTION_START = "<!-- EMBPILOT_START -->"
 SECTION_END = "<!-- EMBPILOT_END -->"
 
-INSTRUCTIONS_BLOCK = f"""{SECTION_START}
+
+def build_instructions_block(extra: str = "") -> str:
+    """The marker-fenced EmbPilot instructions block.
+
+    *extra* (optional) is appended as a paragraph inside the fence so a
+    target can tailor guidance — e.g. the dsh target names the
+    ``mcp__embpilot__`` tool prefix the harness registers — without
+    duplicating the whole text. The empty form is byte-identical to
+    ``INSTRUCTIONS_BLOCK``.
+    """
+    note = f"\n{extra}\n" if extra else ""
+    return f"""{SECTION_START}
 ## EmbPilot
 
 For embedded-device debugging (Serial/UART, SSH, Telnet) in repositories where
@@ -36,7 +47,19 @@ EmbPilot instead of raw ssh/telnet/serial clients:
 
 If EmbPilot is not installed or lacks the required capability, fall back to raw
 tools and explain why.
-{SECTION_END}"""
+{note}{SECTION_END}"""
+
+
+INSTRUCTIONS_BLOCK = build_instructions_block()
+
+#: dsh exposes MCP tools under the server-qualified `mcp__<server>__<tool>`
+#: naming (mcp__embpilot__connect_serial, ...); the note appended to the dsh
+#: instructions block names that prefix so agents find the tools.
+DSH_MCP_NOTE = (
+    "In DeepSeek Harness (dsh) the MCP tools are registered under the "
+    "`mcp__embpilot__` prefix (serverName `embpilot`), e.g. "
+    "`mcp__embpilot__connect_serial`; the names above are the raw MCP names."
+)
 
 #: Marker used inside the block when the CLI fallback must be emphasized for
 #: harnesses without any MCP client (pi). Kept as a separate constant so the

@@ -61,6 +61,7 @@ to the CLI automatically:
 embpilot install                      # interactive: pick targets/scope, confirm files
 embpilot install --target pi          # pi: AGENTS.md instructions + user skill
 embpilot install --target claude      # Claude Code: .mcp.json + CLAUDE.md
+embpilot install --target dsh         # DeepSeek Harness: MCP patch layer + instructions + skill
 embpilot install --target agents      # project AGENTS.md (Cursor/Codex/Gemini/...)
 embpilot install --target all --location global --yes   # non-interactive, no prompts
 embpilot install --check              # report state, write nothing (exit 0/1)
@@ -76,7 +77,12 @@ scripting.
 Targets: `claude` (MCP + CLAUDE.md), `zcode` (MCP + skill +
 AGENTS.md), `opencode` (MCP + AGENTS.md), `codex` (TOML MCP +
 AGENTS.md, global), `pi` (CLI-only: AGENTS.md + skill copied into
-`~/.pi/agent/skills/`), `agents` (project AGENTS.md).
+`~/.pi/agent/skills/`), `agents` (project AGENTS.md), `dsh`
+(DeepSeek Harness: MCP bridge merged into the `$DSH_HOME/cordis.patch.yml`
+user patch layer that applies to every profile, instructions into
+`$DSH_HOME/AGENTS.md` / project AGENTS.md, and the skill copied into
+`$DSH_HOME/skills/` globally or `.dsh/skills/` locally; dsh exposes the
+tools as `mcp__embpilot__<name>`).
 `--location local` writes project files, `--location global` writes user-scope
 files; `--check` reports state without writing and exits 0 when everything
 selected is configured.

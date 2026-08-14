@@ -1,5 +1,19 @@
 # Change Log
 
+## 0.3.1 (2026-08-13)
+### Added
+- `dsh` (DeepSeek Harness) install target: MCP bridge
+  (`@deepseek-ai/dsh-mcp-client` `insert` patch) merged into the
+  home-level `$DSH_HOME/cordis.patch.yml` user patch layer that applies to
+  every profile (global; sibling user patches preserved), the instructions
+  block into `$DSH_HOME/AGENTS.md` / project AGENTS.md, and the
+  device-debugging skill into `$DSH_HOME/skills/` (global) or
+  `.dsh/skills/` (local). `$DSH_HOME` env var honored. dsh exposes the
+  tools as `mcp__embpilot__<name>`; the instructions block gained an
+  optional per-target note (`build_instructions_block`) naming that prefix.
+- Installer tests isolate `DSH_HOME` (the harness environment exports it,
+  which leaked into the real user home during the first test run).
+
 ## 0.3.0 (2026-08-13)
 - Inherited from the previous release line (0.2.x): `export_operation_history`
   tool (redacted audit trail export, session filter, limit/offset) and

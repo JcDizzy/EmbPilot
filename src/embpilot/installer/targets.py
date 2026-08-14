@@ -24,9 +24,11 @@ from pathlib import Path
 from typing import Literal
 
 from embpilot.installer.instructions import (
+    DSH_MCP_NOTE,
     INSTRUCTIONS_BLOCK,
     SECTION_END,
     SECTION_START,
+    build_instructions_block,
 )
 from embpilot.installer.shared import (
     Action,
@@ -182,13 +184,17 @@ def _mcp_json_snippet() -> str:
     )
 
 
-def upsert_instructions(path: Path) -> FileChange:
-    """Upsert the marker-fenced EmbPilot instructions block into *path*."""
+def upsert_instructions(
+    path: Path, block: str = INSTRUCTIONS_BLOCK
+) -> FileChange:
+    """Upsert the marker-fenced EmbPilot instructions block into *path*.
+
+    *block* defaults to the shared block; targets may pass a tailored
+    variant that keeps the same SECTION_START/SECTION_END fence.
+    """
     return FileChange(
         path,
-        replace_or_append_marked_section(
-            path, INSTRUCTIONS_BLOCK, SECTION_START, SECTION_END
-        ),
+        replace_or_append_marked_section(path, block, SECTION_START, SECTION_END),
     )
 
 
@@ -699,6 +705,164 @@ class ZCodeTarget(AgentTarget):
         return paths
 
 
+# ── DeepSeek Harness (dsh) ──────────────────────────────────────────────────
+
+#: dsh has no project-level MCP config: MCP servers mount through Cordis
+#: patch layers under the harness home. The home-level patch file applies to
+#: every profile (web, headless, ...); per-profile files live in
+#: $DSH_HOME/profiles/<name>/cordis.patch.yml.
+DSH_PATCH_FILENAME = "cordis.patch.yml"
+DSH_MCP_BLOCK_START = "# EMBPILOT_START"
+DSH_MCP_BLOCK_END = "# EMBPILOT_END"
+
+#: dsh exposes MCP tools as mcp__<serverName>__<tool>; the instructions
+#: block carries a short note naming that prefix.
+DSH_INSTRUCTIONS_BLOCK = build_instructions_block(DSH_MCP_NOTE)
+
+#: Marker-fenced ``insert`` patch mounting the MCP bridge. The file must stay
+#: a top-level YAML array of loader patch entries, so unrelated user patches
+#: are preserved around the fence (see replace_or_append_marked_section).
+DSH_MCP_BLOCK = f"""{DSH_MCP_BLOCK_START}
+# EmbPilot MCP bridge for DeepSeek Harness. dsh exposes the server's tools as
+# mcp__embpilot__<name>; re-run `embpilot install --target dsh` to update.
+- insert:
+    - id: mcp-embpilot
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: embpilot
+        transport: stdio
+        command: embpilot
+        args: ['--data-dir', './.embpilot-data']
+        cwd: !!js process.cwd()
+{DSH_MCP_BLOCK_END}"""
+
+
+def _dsh_home() -> Path:
+    """$DSH_HOME, falling back to ~/.dsh (dsh-home-paths precedence)."""
+    override = os.environ.get("DSH_HOME")
+    if override:
+        return Path(override)
+    return home_dir() / ".dsh"
+
+
+def _dsh_patch_path() -> Path:
+    return _dsh_home() / DSH_PATCH_FILENAME
+
+
+def _dsh_instructions(loc: Location) -> Path:
+    if loc == "global":
+        return _dsh_home() / "AGENTS.md"
+    return project_dir() / "AGENTS.md"
+
+
+def _dsh_skill_dest(loc: Location) -> Path:
+    if loc == "global":
+        return _dsh_home() / "skills" / PI_SKILL_DIR_NAME
+    return project_dir() / ".dsh" / "skills" / PI_SKILL_DIR_NAME
+
+
+def upsert_dsh_mcp_patch(path: Path) -> FileChange:
+    """Upsert the marker-fenced MCP insert block into a dsh patch layer."""
+    return FileChange(
+        path,
+        replace_or_append_marked_section(
+            path, DSH_MCP_BLOCK, DSH_MCP_BLOCK_START, DSH_MCP_BLOCK_END
+        ),
+    )
+
+
+def remove_dsh_mcp_patch(path: Path) -> FileChange:
+    """Remove the marker-fenced MCP insert block from a dsh patch layer."""
+    return FileChange(
+        path,
+        remove_marked_section(path, DSH_MCP_BLOCK_START, DSH_MCP_BLOCK_END),
+    )
+
+
+class DshTarget(AgentTarget):
+    """DeepSeek Harness (dsh).
+
+    MCP servers mount through the home-level user patch layer
+    ``$DSH_HOME/cordis.patch.yml`` (applies to every profile), so the
+    installer merges an ``insert`` row for the
+    ``@deepseek-ai/dsh-mcp-client`` bridge there — global only, because
+    dsh has no project-level MCP config. Workspace instructions come from
+    ``$DSH_HOME/AGENTS.md`` (global) or the project ``AGENTS.md``
+    (local); skills are discovered from ``$DSH_HOME/skills`` (global) or
+    ``.dsh/skills`` (local).
+    """
+
+    id = "dsh"
+    display_name = "DeepSeek Harness (dsh)"
+
+    def supports_location(self, loc: Location) -> bool:
+        return True
+
+    def detect(self, loc: Location) -> DetectionResult:
+        instructions = _dsh_instructions(loc)
+        content = ""
+        if instructions.exists():
+            try:
+                content = instructions.read_text(encoding="utf-8")
+            except OSError:
+                pass
+        config_path: str | None = None
+        patch_content = ""
+        if loc == "global":
+            patch = _dsh_patch_path()
+            config_path = str(patch)
+            if patch.exists():
+                try:
+                    patch_content = patch.read_text(encoding="utf-8")
+                except OSError:
+                    pass
+        installed = _dsh_home().exists() or (
+            loc == "local" and (project_dir() / ".dsh").exists()
+        )
+        already = SECTION_START in content and (
+            loc == "local" or DSH_MCP_BLOCK_START in patch_content
+        )
+        return DetectionResult(installed, already, config_path)
+
+    def install(self, loc: Location) -> list[FileChange]:
+        changes: list[FileChange] = []
+        if loc == "global":
+            changes.append(upsert_dsh_mcp_patch(_dsh_patch_path()))
+        changes.append(
+            upsert_instructions(_dsh_instructions(loc), DSH_INSTRUCTIONS_BLOCK)
+        )
+        changes.append(install_skill_to(_dsh_skill_dest(loc)))
+        return changes
+
+    def uninstall(self, loc: Location) -> list[FileChange]:
+        changes: list[FileChange] = []
+        if loc == "global":
+            changes.append(remove_dsh_mcp_patch(_dsh_patch_path()))
+        changes.append(remove_instructions(_dsh_instructions(loc)))
+        changes.append(remove_skill_from(_dsh_skill_dest(loc)))
+        return changes
+
+    def print_config(self) -> str:
+        return (
+            "dsh has no project-level MCP config; the installer merges the "
+            "MCP bridge into the home-level user patch layer "
+            f"{_dsh_patch_path()} (applies to every profile). "
+            "Manual equivalent — append to that file:\n\n"
+            + DSH_MCP_BLOCK
+            + "\n\nand append the block below to $DSH_HOME/AGENTS.md "
+            "(global) or the project AGENTS.md (local):\n\n"
+            + DSH_INSTRUCTIONS_BLOCK
+        )
+
+    def describe_paths(self, loc: Location) -> list[str]:
+        paths: list[str] = []
+        if loc == "global":
+            paths.append(str(_dsh_patch_path()))
+        paths.append(str(_dsh_instructions(loc)))
+        paths.append(str(_dsh_skill_dest(loc)))
+        return paths
+
+
 # ── Registry ─────────────────────────────────────────────────────────────────
 
 ALL_TARGETS: list[AgentTarget] = [
@@ -708,6 +872,7 @@ ALL_TARGETS: list[AgentTarget] = [
     CodexTarget(),
     PiTarget(),
     AgentsTarget(),
+    DshTarget(),
 ]
 
 
